@@ -1,0 +1,33 @@
+{{define "content"}}
+<h1>Настройки</h1>
+
+<div class="two-col">
+  <form method="post" action="/settings" class="card form">
+    <h2>Политика хранения</h2>
+    <label>Сколько последних бэкапов хранить по умолчанию
+      <input name="default_retention" value="{{index .Settings "default_retention"}}" inputmode="numeric">
+    </label>
+    <label>Окно догоняющих запусков после старта, минут
+      <input name="grace_minutes" value="{{index .Settings "grace_minutes"}}" inputmode="numeric">
+    </label>
+    <label>Минимум свободного места на диске бэкапов, МБ
+      <input name="min_free_mb" value="{{index .Settings "min_free_mb"}}" inputmode="numeric">
+    </label>
+    <p class="muted small">0 в поле хранения — не удалять автоматически. Окно догоняющих запусков применится после перезапуска сервиса.</p>
+    <button class="btn primary" type="submit">Сохранить</button>
+  </form>
+
+  <div class="card">
+    <h2>Окружение</h2>
+    <dl class="props">
+      <dt>Каталог бэкапов</dt><dd><code>{{.BackupDir}}</code></dd>
+      <dt>Данные сервиса</dt><dd><code>{{.DataDir}}</code></dd>
+      <dt>Источники (VBC_SOURCE_ROOTS)</dt><dd>{{range .SourceRoots}}<code>{{.}}</code> {{end}}</dd>
+      <dt>Параллельных задач</dt><dd>{{.MaxConcurrent}}</dd>
+      <dt>Таймаут задачи</dt><dd>{{.JobTimeout}}</dd>
+      <dt>Администратор</dt><dd>{{.AdminUser}}</dd>
+    </dl>
+    <p class="muted small">Эти значения задаются переменными окружения в docker-compose и меняются перезапуском контейнера.</p>
+  </div>
+</div>
+{{end}}

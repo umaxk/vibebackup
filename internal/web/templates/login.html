@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="card login">
+  <h1>Вход в vbackuper</h1>
+  <p class="muted">Резервное копирование каталогов и баз данных.</p>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <label>Логин
+      <input name="username" autocomplete="username" autofocus required>
+    </label>
+    <label>Пароль
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button class="btn primary" type="submit">Войти</button>
+  </form>
+</div>
+{{end}}

@@ -1,0 +1,44 @@
+services:
+  vbackuper:
+    build:
+      context: .
+      args:
+        VERSION: "${VBC_VERSION:-0.1.0}"
+    image: vbackuper:${VBC_VERSION:-0.1.0}
+    container_name: vbackuper
+    restart: unless-stopped
+    ports:
+      - "${VBC_PORT:-8787}:8787"
+    environment:
+      TZ: ${TZ:-Europe/Moscow}
+      VBC_ADMIN_USER: ${VBC_ADMIN_USER:-admin}
+      VBC_ADMIN_PASSWORD: ${VBC_ADMIN_PASSWORD:?задайте VBC_ADMIN_PASSWORD в .env}
+      VBC_API_KEY: ${VBC_API_KEY:-}
+      VBC_UI_ENABLED: ${VBC_UI_ENABLED:-true}
+      VBC_SOURCE_ROOTS: /sources
+      VBC_DEFAULT_RETENTION: ${VBC_DEFAULT_RETENTION:-7}
+      VBC_MAX_CONCURRENT: ${VBC_MAX_CONCURRENT:-2}
+      VBC_JOB_TIMEOUT: ${VBC_JOB_TIMEOUT:-2h}
+      VBC_MIN_FREE_MB: ${VBC_MIN_FREE_MB:-512}
+      VBC_GRACE_MINUTES: ${VBC_GRACE_MINUTES:-60}
+    volumes:
+      - vbackuper_data:/data
+      - ./backups:/backups
+      - D:/site:/sources/site:ro
+      # Смонтируйте каталоги, которые нужно бэкапить, только для чтения.
+      # Формат: <путь на хосте>:<путь в контейнере>:ro
+      - ${SOURCE_DIR:-./sources}:/sources/data:ro
+      # - D:/Photo:/sources/photo:ro
+      # - /home/user/projects:/sources/projects:ro
+    # Для баз данных, запущенных на самом хосте (Linux):
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  vbackuper_data:

@@ -1,0 +1,86 @@
+{{define "content"}}
+<div class="row between">
+  <h1>{{if .IsNew}}Новая цель{{else}}Изменить цель{{end}}</h1>
+  <a class="btn ghost" href="{{if .IsNew}}/{{else}}/targets/{{.TargetID}}{{end}}">Отмена</a>
+</div>
+
+<form method="post" action="{{.Action}}" class="card form" id="target-form" data-target-id="{{.TargetID}}">
+  <div class="grid2">
+    <label>Название
+      <input name="name" value="{{.Form.Name}}" required placeholder="Например: Фото и документы">
+    </label>
+    <label>Тип цели
+      <select name="type" id="target-type">
+        <option value="dir" {{if eq .Form.Type "dir"}}selected{{end}}>Каталог</option>
+        <option value="postgres" {{if eq .Form.Type "postgres"}}selected{{end}}>PostgreSQL</option>
+        <option value="mysql" {{if eq .Form.Type "mysql"}}selected{{end}}>MySQL / MariaDB</option>
+      </select>
+    </label>
+  </div>
+
+  <fieldset data-type-section="dir">
+    <legend>Каталог</legend>
+    <label>Путь внутри контейнера
+      <input name="dir_path" value="{{.Form.DirPath}}" list="source-list" placeholder="/sources/data">
+    </label>
+    <datalist id="source-list">
+      {{range .SourceRoots}}<option value="{{.}}"></option>{{end}}
+    </datalist>
+    <p class="muted small">Доступны только каталоги, смонтированные в контейнер (VBC_SOURCE_ROOTS).</p>
+    <label>Исключения (по одному на строку)
+      <textarea name="dir_exclude" rows="3" placeholder="node_modules&#10;*.log&#10;.cache">{{.Form.DirExclude}}</textarea>
+    </label>
+    <p class="muted small">Шаблоны проверяются по относительному пути и по имени файла на любом уровне вложенности.</p>
+  </fieldset>
+
+  <fieldset data-type-section="db">
+    <legend>База данных</legend>
+    <div class="grid2">
+      <label>Хост <input name="db_host" value="{{.Form.DBHost}}" placeholder="postgres"></label>
+      <label>Порт <input name="db_port" value="{{.Form.DBPort}}" inputmode="numeric" placeholder="5432"></label>
+    </div>
+    <div class="grid2">
+      <label>База <input name="db_name" value="{{.Form.DBName}}" placeholder="app"></label>
+      <label>Пользователь <input name="db_user" value="{{.Form.DBUser}}" placeholder="backup"></label>
+    </div>
+    <div class="grid2">
+      <label>Пароль
+        <input type="password" name="db_password" autocomplete="new-password" placeholder="{{if .Form.PasswordSet}}оставьте пустым, чтобы не менять{{else}}пароль{{end}}">
+      </label>
+      <label data-ssl>SSL mode (PostgreSQL)
+        <select name="db_sslmode">
+          <option value="prefer" {{if eq .Form.DBSSLMode "prefer"}}selected{{end}}>prefer</option>
+          <option value="disable" {{if eq .Form.DBSSLMode "disable"}}selected{{end}}>disable</option>
+          <option value="require" {{if eq .Form.DBSSLMode "require"}}selected{{end}}>require</option>
+          <option value="verify-full" {{if eq .Form.DBSSLMode "verify-full"}}selected{{end}}>verify-full</option>
+        </select>
+      </label>
+    </div>
+    <p class="muted small">Если база в том же docker-compose, укажите имя сервиса (например, <code>postgres</code>). Если на хосте — <code>host.docker.internal</code>.</p>
+  </fieldset>
+
+  <div class="grid2">
+    <label>Расписание (cron)
+      <input name="schedule" id="schedule" value="{{.Form.Schedule}}" placeholder="0 3 * * *">
+    </label>
+    <label>Хранить последних бэкапов
+      <input name="retention_keep" value="{{.Form.RetentionKeep}}" inputmode="numeric">
+    </label>
+  </div>
+  <p class="muted small">
+    Формат: минута час день месяц день-недели. Примеры: <code>0 * * * *</code> — каждый час,
+    <code>0 3 * * *</code> — ежедневно в 03:00, <code>0 4 * * 0</code> — по воскресеньям.
+    Пустое поле — только ручной запуск. <code>0</code> в «хранить» — использовать значение по умолчанию.
+  </p>
+  <div id="cron-preview" class="muted small">{{if .NextRuns}}Ближайшие запуски: {{range .NextRuns}}{{fmtTime .}}; {{end}}{{end}}</div>
+
+  <label class="check"><input type="checkbox" name="enabled" value="1" {{if .Form.Enabled}}checked{{end}}> Включена</label>
+
+  <div class="row gap wrap">
+    <button class="btn primary" type="submit">Сохранить</button>
+    <button class="btn ghost" type="button" id="test-btn">Проверить подключение</button>
+    {{if not .IsNew}}<a class="btn ghost" href="/targets/{{.TargetID}}">История бэкапов</a>{{end}}
+  </div>
+  <div id="test-result" class="test-result"></div>
+</form>
+{{end}}

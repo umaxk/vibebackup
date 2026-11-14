@@ -1,0 +1,56 @@
+# Дымовой тест: PostgreSQL + MariaDB с демо-данными и сервис vbackuper.
+#
+#   docker compose -f docker-compose.test.yml up -d --build
+#   UI: http://localhost:8787  (admin / test123)
+#
+# Цели для проверки:
+#   каталог   /sources/fixtures
+#   postgres  host=postgres port=5432 db=demo user=demo password=demo
+#   mariadb   host=mariadb  port=3306 db=demo user=demo password=demo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: demo
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+    volumes:
+      - ./test/postgres-seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: demo
+      MARIADB_USER: demo
+      MARIADB_PASSWORD: demo
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - ./test/mysql-seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+
+  vbackuper:
+    build:
+      context: .
+      args:
+        VERSION: test
+        PG_VERSION: "16"
+    image: vbackuper:test
+    ports:
+      - "8787:8787"
+    environment:
+      TZ: UTC
+      VBC_ADMIN_PASSWORD: test123
+      VBC_SOURCE_ROOTS: /sources
+      VBC_DEFAULT_RETENTION: 3
+      VBC_MIN_FREE_MB: 0
+      VBC_MAX_CONCURRENT: 2
+    volumes:
+      - vbackuper_test_data:/data
+      - ./backups-test:/backups
+      - ./test/fixtures:/sources/fixtures:ro
+    depends_on:
+      - postgres
+      - mariadb
+
+volumes:
+  vbackuper_test_data:

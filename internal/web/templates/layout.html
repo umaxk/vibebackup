@@ -1,0 +1,29 @@
+{{define "layout"}}<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — vbackuper</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+{{if .Authed}}
+<header class="top">
+  <a class="brand" href="/">vbackuper</a>
+  <nav>
+    <a href="/">Цели</a>
+    <a href="/backups">Бэкапы</a>
+    <a href="/settings">Настройки</a>
+  </nav>
+  <form method="post" action="/logout" class="logout"><button class="link" type="submit">Выйти</button></form>
+</header>
+{{end}}
+<main class="{{if not .Authed}}narrow{{end}}">
+{{if .Flash}}<div class="flash ok">{{.Flash}}</div>{{end}}
+{{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+{{template "content" .}}
+</main>
+<footer>vbackuper {{.Version}}</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>{{end}}

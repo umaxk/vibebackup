@@ -1,0 +1,13 @@
+.git
+.gitignore
+backups
+backups-test
+sources
+data
+test/fixtures
+.env
+*.exe
+vbackuper
+Dockerfile
+docker-compose*.yml
+README.md

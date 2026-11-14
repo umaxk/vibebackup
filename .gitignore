@@ -1,0 +1,15 @@
+/backups/
+/backups-test/
+/data/
+/sources/
+/secret.key
+.env
+.env.local
+.env.*.local
+*.exe
+vbackuper
+*.log
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
