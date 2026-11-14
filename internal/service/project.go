@@ -19,9 +19,9 @@ import (
 	"vbackuper/internal/store"
 )
 
-// SiteInput is a transport-agnostic description of a site, used by the web form
-// and the JSON API. At least one of DirEnabled/DBEnabled must be true.
-type SiteInput struct {
+// ProjectInput is a transport-agnostic description of a project, used by the
+// web form and the JSON API. At least one of DirEnabled/DBEnabled must be true.
+type ProjectInput struct {
 	Name          string
 	Schedule      string
 	Enabled       bool
@@ -41,33 +41,33 @@ type SiteInput struct {
 	DBSSLMode  string
 }
 
-// PartTestResult is the outcome of checking one part of a site.
+// PartTestResult is the outcome of checking one part of a project.
 type PartTestResult struct {
 	OK    bool   `json:"ok"`
 	Info  string `json:"info,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
-// SiteTestResult checks the directory and the database independently.
-type SiteTestResult struct {
+// ProjectTestResult checks the directory and the database independently.
+type ProjectTestResult struct {
 	OK    bool            `json:"ok"`
 	Dir   *PartTestResult `json:"dir,omitempty"`
 	DB    *PartTestResult `json:"db,omitempty"`
 	Error string          `json:"error,omitempty"`
 }
 
-// siteManifest is written next to the artifacts of every run.
-type siteManifest struct {
-	SiteID     int64              `json:"site_id"`
-	SiteName   string             `json:"site_name"`
-	BackupID   int64              `json:"backup_id"`
-	StartedAt  time.Time          `json:"started_at"`
-	FinishedAt time.Time          `json:"finished_at"`
-	Files      []siteManifestFile `json:"files"`
-	Errors     map[string]string  `json:"errors,omitempty"`
+// projectManifest is written next to the artifacts of every run.
+type projectManifest struct {
+	ProjectID   int64                 `json:"project_id"`
+	ProjectName string                `json:"project_name"`
+	BackupID    int64                 `json:"backup_id"`
+	StartedAt   time.Time             `json:"started_at"`
+	FinishedAt  time.Time             `json:"finished_at"`
+	Files       []projectManifestFile `json:"files"`
+	Errors      map[string]string     `json:"errors,omitempty"`
 }
 
-type siteManifestFile struct {
+type projectManifestFile struct {
 	Role      string `json:"role"`
 	Name      string `json:"name"`
 	SizeBytes int64  `json:"size_bytes"`
@@ -76,85 +76,85 @@ type siteManifestFile struct {
 
 // ---------------------------------------------------------------- CRUD
 
-// CreateSite validates and stores a new site.
-func (s *Service) CreateSite(ctx context.Context, in SiteInput) (*store.Site, error) {
-	site, err := s.siteFromInput(nil, in)
+// CreateProject validates and stores a new project.
+func (s *Service) CreateProject(ctx context.Context, in ProjectInput) (*store.Project, error) {
+	project, err := s.projectFromInput(in, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.st.CreateSite(ctx, site); err != nil {
+	if err := s.st.CreateProject(ctx, project); err != nil {
 		return nil, err
 	}
-	return site, nil
+	return project, nil
 }
 
-// UpdateSite validates and saves an existing site.
-func (s *Service) UpdateSite(ctx context.Context, id int64, in SiteInput) (*store.Site, error) {
-	old, err := s.st.GetSite(ctx, id)
+// UpdateProject validates and saves an existing project.
+func (s *Service) UpdateProject(ctx context.Context, id int64, in ProjectInput) (*store.Project, error) {
+	old, err := s.st.GetProject(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	site, err := s.siteFromInput(old, in)
+	project, err := s.projectFromInput(in, old)
 	if err != nil {
 		return nil, err
 	}
-	site.ID = id
-	site.CreatedAt = old.CreatedAt
-	if err := s.st.UpdateSite(ctx, site); err != nil {
+	project.ID = id
+	project.CreatedAt = old.CreatedAt
+	if err := s.st.UpdateProject(ctx, project); err != nil {
 		return nil, err
 	}
-	return site, nil
+	return project, nil
 }
 
-// DeleteSite removes a site and, optionally, every run directory it owns.
-func (s *Service) DeleteSite(ctx context.Context, id int64, removeFiles bool) error {
-	if s.IsSiteRunning(id) {
-		return ErrSiteBusy
+// DeleteProject removes a project and, optionally, every run directory it owns.
+func (s *Service) DeleteProject(ctx context.Context, id int64, removeFiles bool) error {
+	if s.IsProjectRunning(id) {
+		return ErrProjectBusy
 	}
-	site, err := s.st.GetSite(ctx, id)
+	project, err := s.st.GetProject(ctx, id)
 	if err != nil {
 		return err
 	}
-	runs, err := s.st.ListSiteBackups(ctx, id, 1_000_000)
+	runs, err := s.st.ListProjectBackups(ctx, id, 1_000_000)
 	if err != nil {
 		return err
 	}
 	if removeFiles {
 		for _, run := range runs {
 			if err := s.removeDirInside(run.RunDir); err != nil {
-				s.log.Warn("не удалось удалить каталог прогона сайта", "site_id", id, "backup_id", run.ID, "err", err)
+				s.log.Warn("не удалось удалить каталог прогона проекта", "project_id", id, "backup_id", run.ID, "err", err)
 			}
 		}
 	}
-	if err := s.st.DeleteSite(ctx, id); err != nil {
+	if err := s.st.DeleteProject(ctx, id); err != nil {
 		return err
 	}
 	if removeFiles {
-		s.removeSiteRoot(site)
+		s.removeProjectRoot(project)
 	}
 	return nil
 }
 
-func (s *Service) siteFromInput(old *store.Site, in SiteInput) (*store.Site, error) {
-	site := &store.Site{
+func (s *Service) projectFromInput(in ProjectInput, old *store.Project) (*store.Project, error) {
+	project := &store.Project{
 		Name:          strings.TrimSpace(in.Name),
 		Schedule:      strings.TrimSpace(in.Schedule),
 		Enabled:       in.Enabled,
 		RetentionKeep: in.RetentionKeep,
 	}
-	if site.Name == "" {
-		return nil, errors.New("название сайта обязательно")
+	if project.Name == "" {
+		return nil, errors.New("название проекта обязательно")
 	}
-	if site.RetentionKeep < 0 {
-		site.RetentionKeep = 0
+	if project.RetentionKeep < 0 {
+		project.RetentionKeep = 0
 	}
-	if site.Schedule != "" {
-		if _, err := cron.ParseStandard(site.Schedule); err != nil {
-			return nil, fmt.Errorf("расписание %q: %w", site.Schedule, err)
+	if project.Schedule != "" {
+		if _, err := cron.ParseStandard(project.Schedule); err != nil {
+			return nil, fmt.Errorf("расписание %q: %w", project.Schedule, err)
 		}
 	}
 	if !in.DirEnabled && !in.DBEnabled {
-		return nil, errors.New("включите каталог и/или базу данных: сайт без частей не имеет смысла")
+		return nil, errors.New("включите каталог и/или базу данных: проект без частей не имеет смысла")
 	}
 
 	if in.DirEnabled {
@@ -172,25 +172,25 @@ func (s *Service) siteFromInput(old *store.Site, in SiteInput) (*store.Site, err
 		if !info.IsDir() {
 			return nil, fmt.Errorf("%s не является каталогом", p)
 		}
-		if err := site.SetDir(&store.DirConfig{Path: p, Exclude: cleanList(in.DirExclude)}); err != nil {
+		if err := project.SetDir(&store.DirConfig{Path: p, Exclude: cleanList(in.DirExclude)}); err != nil {
 			return nil, err
 		}
 	}
 
 	if in.DBEnabled {
-		kind, cfg, err := normalizeSiteDB(in, old)
+		kind, cfg, err := normalizeProjectDB(in, old)
 		if err != nil {
 			return nil, err
 		}
-		if err := site.SetDB(kind, cfg); err != nil {
+		if err := project.SetDB(kind, cfg); err != nil {
 			return nil, err
 		}
 	}
 
-	return site, nil
+	return project, nil
 }
 
-func normalizeSiteDB(in SiteInput, old *store.Site) (string, *store.DBConfig, error) {
+func normalizeProjectDB(in ProjectInput, old *store.Project) (string, *store.DBConfig, error) {
 	kind := strings.TrimSpace(in.DBType)
 	if kind != store.TypePostgres && kind != store.TypeMySQL {
 		return "", nil, errors.New("выберите тип базы данных: PostgreSQL или MySQL/MariaDB")
@@ -238,15 +238,15 @@ func normalizeSiteDB(in SiteInput, old *store.Site) (string, *store.DBConfig, er
 
 // ---------------------------------------------------------------- tests
 
-// TestSite checks enabled parts independently and reports each outcome. A nil
+// TestProject checks enabled parts independently and reports each outcome. A nil
 // ID means the form is not saved yet.
-func (s *Service) TestSite(ctx context.Context, id int64, in SiteInput) SiteTestResult {
-	var old *store.Site
+func (s *Service) TestProject(ctx context.Context, id int64, in ProjectInput) ProjectTestResult {
+	var old *store.Project
 	if id > 0 {
-		old, _ = s.st.GetSite(ctx, id)
+		old, _ = s.st.GetProject(ctx, id)
 	}
 
-	res := SiteTestResult{}
+	res := ProjectTestResult{}
 	enabled := 0
 
 	if in.DirEnabled {
@@ -273,7 +273,7 @@ func (s *Service) TestSite(ctx context.Context, id int64, in SiteInput) SiteTest
 	if in.DBEnabled {
 		enabled++
 		part := &PartTestResult{}
-		kind, cfg, err := normalizeSiteDB(in, old)
+		kind, cfg, err := normalizeProjectDB(in, old)
 		if err != nil {
 			part.Error = err.Error()
 		} else {
@@ -296,30 +296,30 @@ func (s *Service) TestSite(ctx context.Context, id int64, in SiteInput) SiteTest
 	return res
 }
 
-// TestStoredSite checks a saved site.
-func (s *Service) TestStoredSite(ctx context.Context, id int64) SiteTestResult {
-	site, err := s.st.GetSite(ctx, id)
+// TestStoredProject checks a saved project.
+func (s *Service) TestStoredProject(ctx context.Context, id int64) ProjectTestResult {
+	project, err := s.st.GetProject(ctx, id)
 	if err != nil {
-		return SiteTestResult{Error: err.Error()}
+		return ProjectTestResult{Error: err.Error()}
 	}
-	return s.TestSite(ctx, id, siteToInput(site))
+	return s.TestProject(ctx, id, projectToInput(project))
 }
 
-func siteToInput(site *store.Site) SiteInput {
-	in := SiteInput{
-		Name:          site.Name,
-		Schedule:      site.Schedule,
-		Enabled:       site.Enabled,
-		RetentionKeep: site.RetentionKeep,
+func projectToInput(project *store.Project) ProjectInput {
+	in := ProjectInput{
+		Name:          project.Name,
+		Schedule:      project.Schedule,
+		Enabled:       project.Enabled,
+		RetentionKeep: project.RetentionKeep,
 	}
-	if cfg, err := site.Dir(); err == nil && cfg != nil {
+	if cfg, err := project.Dir(); err == nil && cfg != nil {
 		in.DirEnabled = true
 		in.DirPath = cfg.Path
 		in.DirExclude = cfg.Exclude
 	}
-	if cfg, err := site.DB(); err == nil && cfg != nil {
+	if cfg, err := project.DB(); err == nil && cfg != nil {
 		in.DBEnabled = true
-		in.DBType = site.DBType
+		in.DBType = project.DBType
 		in.DBHost = cfg.Host
 		in.DBPort = cfg.Port
 		in.DBName = cfg.Database
@@ -332,123 +332,123 @@ func siteToInput(site *store.Site) SiteInput {
 
 // ---------------------------------------------------------------- runs
 
-// StartSiteBackup reserves a slot for the site and starts the run in the
+// StartProjectBackup reserves a slot for the project and starts the run in the
 // background. It returns the ID of the created run row.
-func (s *Service) StartSiteBackup(ctx context.Context, siteID int64, trigger string) (int64, error) {
-	if _, err := s.st.GetSite(ctx, siteID); err != nil {
+func (s *Service) StartProjectBackup(ctx context.Context, projectID int64, trigger string) (int64, error) {
+	if _, err := s.st.GetProject(ctx, projectID); err != nil {
 		return 0, err
 	}
 
 	s.mu.Lock()
-	if s.runningSites[siteID] {
+	if s.running[projectID] {
 		s.mu.Unlock()
-		return 0, ErrSiteBusy
+		return 0, ErrProjectBusy
 	}
-	s.runningSites[siteID] = true
+	s.running[projectID] = true
 	s.mu.Unlock()
 
-	b := &store.SiteBackup{SiteID: siteID, StartedAt: time.Now().UTC(), Status: store.StatusQueued}
-	if err := s.st.CreateSiteBackup(ctx, b); err != nil {
-		s.setSiteRunning(siteID, false)
+	b := &store.ProjectBackup{ProjectID: projectID, StartedAt: time.Now().UTC(), Status: store.StatusQueued}
+	if err := s.st.CreateProjectBackup(ctx, b); err != nil {
+		s.setProjectRunning(projectID, false)
 		return 0, err
 	}
 	s.wg.Add(1)
-	go s.executeSite(siteID, b.ID, trigger)
+	go s.executeProject(projectID, b.ID, trigger)
 	return b.ID, nil
 }
 
-func (s *Service) executeSite(siteID, backupID int64, trigger string) {
+func (s *Service) executeProject(projectID, backupID int64, trigger string) {
 	defer s.wg.Done()
-	defer s.setSiteRunning(siteID, false)
+	defer s.setProjectRunning(projectID, false)
 
 	logs := backup.NewLogBuffer(32 << 10)
 	start := time.Now()
-	logs.Printf("запуск сайта (%s)", triggerLabel(trigger))
+	logs.Printf("запуск проекта (%s)", triggerLabel(trigger))
 
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()
 	case <-s.rootCtx.Done():
-		s.finishSite(backupID, store.StatusInterrupted, "сервис остановлен", "", "", 0, start, logs)
+		s.finishProject(backupID, store.StatusInterrupted, "сервис остановлен", "", "", 0, start, logs)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(s.rootCtx, s.cfg.JobTimeout)
 	defer cancel()
 
-	if err := s.st.MarkSiteBackupRunning(context.Background(), backupID); err != nil {
-		s.log.Error("не удалось обновить статус прогона сайта", "backup_id", backupID, "err", err)
+	if err := s.st.MarkProjectBackupRunning(context.Background(), backupID); err != nil {
+		s.log.Error("не удалось обновить статус прогона проекта", "backup_id", backupID, "err", err)
 	}
 
-	site, err := s.st.GetSite(ctx, siteID)
+	project, err := s.st.GetProject(ctx, projectID)
 	if err != nil {
-		s.finishSite(backupID, store.StatusFailed, err.Error(), "", "", 0, start, logs)
+		s.finishProject(backupID, store.StatusFailed, err.Error(), "", "", 0, start, logs)
 		return
 	}
 	if err := s.checkFreeSpace(); err != nil {
 		logs.Printf("ошибка: %v", err)
-		s.finishSite(backupID, store.StatusFailed, err.Error(), "", "", 0, start, logs)
+		s.finishProject(backupID, store.StatusFailed, err.Error(), "", "", 0, start, logs)
 		return
 	}
 
 	local := start.In(s.cfg.Location)
-	slug := s.siteSlug(site)
-	runDir := filepath.Join(s.cfg.BackupDir, "sites", slug, local.Format("2006"), local.Format("01"),
+	slug := s.projectSlug(project)
+	runDir := filepath.Join(s.cfg.BackupDir, "projects", slug, local.Format("2006"), local.Format("01"),
 		fmt.Sprintf("%s-b%d", local.Format("20060102T150405"), backupID))
 	if err := os.MkdirAll(runDir, 0o750); err != nil {
 		err = fmt.Errorf("создание каталога прогона: %w", err)
 		logs.Printf("ошибка: %v", err)
-		s.finishSite(backupID, store.StatusFailed, err.Error(), "", "", 0, start, logs)
+		s.finishProject(backupID, store.StatusFailed, err.Error(), "", "", 0, start, logs)
 		return
 	}
 
 	var (
-		artifacts  []siteManifestFile
-		partFiles  []*store.SiteBackupFile
+		artifacts  []projectManifestFile
+		partFiles  []*store.ProjectBackupFile
 		partErrors = map[string]string{}
 	)
 
 	// Database first: it fixes the state early in the run, then the directory
 	// is read after it, so restored files are never older than the database.
-	if dbCfg, err := site.DB(); err != nil {
+	if dbCfg, err := project.DB(); err != nil {
 		partErrors["db"] = err.Error()
 	} else if dbCfg != nil {
-		logs.Printf("часть «база данных»: %s %s@%s:%d/%s", dbKindLabel(site.DBType), dbCfg.User, dbCfg.Host, dbPort(site.DBType, dbCfg.Port), dbCfg.Database)
-		t := &store.Target{ID: site.ID, Type: site.DBType, Name: site.Name, Config: site.DBJSON}
-		res, runErr := backup.Run(ctx, t, runDir, "db", logs)
+		logs.Printf("часть «база данных»: %s %s@%s:%d/%s", dbKindLabel(project.DBType), dbCfg.User, dbCfg.Host, dbPort(project.DBType, dbCfg.Port), dbCfg.Database)
+		spec := backup.Spec{Type: project.DBType, DB: *dbCfg}
+		res, runErr := backup.Run(ctx, spec, runDir, "db", logs)
 		if runErr != nil {
 			partErrors["db"] = runErr.Error()
 			logs.Printf("ошибка базы данных: %v", runErr)
 		} else {
 			artifacts = append(artifacts, manifestFile("db", res))
-			partFiles = append(partFiles, &store.SiteBackupFile{Role: "db", Name: filepath.Base(res.Path), Path: res.Path, SizeBytes: res.SizeBytes, SHA256: res.SHA256})
+			partFiles = append(partFiles, &store.ProjectBackupFile{Role: "db", Name: filepath.Base(res.Path), Path: res.Path, SizeBytes: res.SizeBytes, SHA256: res.SHA256})
 		}
 	}
 
-	if dirCfg, err := site.Dir(); err != nil {
+	if dirCfg, err := project.Dir(); err != nil {
 		partErrors["dir"] = err.Error()
 	} else if dirCfg != nil {
 		logs.Printf("часть «каталог»: %s", dirCfg.Path)
-		t := &store.Target{ID: site.ID, Type: store.TypeDir, Name: site.Name, Config: site.DirJSON}
-		res, runErr := backup.Run(ctx, t, runDir, "files", logs)
+		spec := backup.Spec{Type: store.TypeDir, Dir: *dirCfg}
+		res, runErr := backup.Run(ctx, spec, runDir, "files", logs)
 		if runErr != nil {
 			partErrors["dir"] = runErr.Error()
 			logs.Printf("ошибка каталога: %v", runErr)
 		} else {
 			artifacts = append(artifacts, manifestFile("dir", res))
-			partFiles = append(partFiles, &store.SiteBackupFile{Role: "dir", Name: filepath.Base(res.Path), Path: res.Path, SizeBytes: res.SizeBytes, SHA256: res.SHA256})
+			partFiles = append(partFiles, &store.ProjectBackupFile{Role: "dir", Name: filepath.Base(res.Path), Path: res.Path, SizeBytes: res.SizeBytes, SHA256: res.SHA256})
 		}
 	}
 
 	fin := time.Now().UTC()
-	manifest := siteManifest{
-		SiteID:     site.ID,
-		SiteName:   site.Name,
-		BackupID:   backupID,
-		StartedAt:  start.UTC(),
-		FinishedAt: fin,
-		Files:      artifacts,
-		Errors:     partErrors,
+	manifest := projectManifest{
+		ProjectID:   project.ID,
+		ProjectName: project.Name,
+		BackupID:    backupID,
+		StartedAt:   start.UTC(),
+		FinishedAt:  fin,
+		Files:       artifacts,
+		Errors:      partErrors,
 	}
 	manifestSHA := ""
 	manifestSize := int64(0)
@@ -463,7 +463,7 @@ func (s *Service) executeSite(siteID, backupID int64, trigger string) {
 			sum := sha256.Sum256(raw)
 			manifestSHA = hex.EncodeToString(sum[:])
 			manifestSize = int64(len(raw))
-			partFiles = append(partFiles, &store.SiteBackupFile{
+			partFiles = append(partFiles, &store.ProjectBackupFile{
 				Role: "manifest", Name: "manifest.json", Path: manifestPath,
 				SizeBytes: manifestSize, SHA256: manifestSHA,
 			})
@@ -474,8 +474,8 @@ func (s *Service) executeSite(siteID, backupID int64, trigger string) {
 	for _, f := range partFiles {
 		f.BackupID = backupID
 		total += f.SizeBytes
-		if err := s.st.AddSiteBackupFile(context.Background(), f); err != nil {
-			s.log.Error("не удалось сохранить файл прогона сайта", "backup_id", backupID, "role", f.Role, "err", err)
+		if err := s.st.AddProjectBackupFile(context.Background(), f); err != nil {
+			s.log.Error("не удалось сохранить файл прогона проекта", "backup_id", backupID, "role", f.Role, "err", err)
 		}
 	}
 
@@ -490,20 +490,20 @@ func (s *Service) executeSite(siteID, backupID int64, trigger string) {
 	if errMsg != "" {
 		logs.Printf("прогон завершён с ошибками: %s", errMsg)
 	}
-	s.finishSite(backupID, status, errMsg, runDir, manifestSHA, total, start, logs)
+	s.finishProject(backupID, status, errMsg, runDir, manifestSHA, total, start, logs)
 
 	if status == store.StatusOK {
-		s.log.Info("прогон сайта выполнен", "site", site.Name, "site_id", site.ID,
+		s.log.Info("прогон проекта выполнен", "project", project.Name, "project_id", project.ID,
 			"files", len(partFiles), "size", total, "duration", fin.Sub(start).Round(time.Second).String())
 	} else {
-		s.log.Error("прогон сайта завершён с ошибкой", "site", site.Name, "site_id", site.ID, "status", status, "err", errMsg)
+		s.log.Error("прогон проекта завершён с ошибкой", "project", project.Name, "project_id", project.ID, "status", status, "err", errMsg)
 	}
-	s.applySiteRetention(site)
+	s.applyProjectRetention(project)
 }
 
-func (s *Service) finishSite(backupID int64, status, errMsg, runDir, manifestSHA string, size int64, start time.Time, logs *backup.LogBuffer) {
+func (s *Service) finishProject(backupID int64, status, errMsg, runDir, manifestSHA string, size int64, start time.Time, logs *backup.LogBuffer) {
 	fin := time.Now().UTC()
-	b := &store.SiteBackup{
+	b := &store.ProjectBackup{
 		ID:             backupID,
 		FinishedAt:     &fin,
 		Status:         status,
@@ -516,14 +516,14 @@ func (s *Service) finishSite(backupID int64, status, errMsg, runDir, manifestSHA
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := s.st.FinishSiteBackup(ctx, b); err != nil {
-		s.log.Error("не удалось сохранить результат прогона сайта", "backup_id", backupID, "err", err)
+	if err := s.st.FinishProjectBackup(ctx, b); err != nil {
+		s.log.Error("не удалось сохранить результат прогона проекта", "backup_id", backupID, "err", err)
 	}
 }
 
-// DeleteSiteBackup removes a run row and, optionally, its whole directory.
-func (s *Service) DeleteSiteBackup(ctx context.Context, id int64, removeFiles bool) error {
-	b, err := s.st.GetSiteBackup(ctx, id)
+// DeleteProjectBackup removes a run row and, optionally, its whole directory.
+func (s *Service) DeleteProjectBackup(ctx context.Context, id int64, removeFiles bool) error {
+	b, err := s.st.GetProjectBackup(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -535,87 +535,87 @@ func (s *Service) DeleteSiteBackup(ctx context.Context, id int64, removeFiles bo
 			return err
 		}
 	}
-	return s.st.DeleteSiteBackup(ctx, id)
+	return s.st.DeleteProjectBackup(ctx, id)
 }
 
 // ---------------------------------------------------------------- retention
 
-func (s *Service) applySiteRetention(site *store.Site) {
+func (s *Service) applyProjectRetention(project *store.Project) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	keep := site.RetentionKeep
+	keep := project.RetentionKeep
 	if keep <= 0 {
 		keep = int(s.settingInt64(ctx, "default_retention", int64(s.cfg.DefaultRetention)))
 	}
 	if keep <= 0 {
 		return
 	}
-	list, err := s.st.ListSuccessfulSiteBackups(ctx, site.ID)
+	list, err := s.st.ListSuccessfulProjectBackups(ctx, project.ID)
 	if err != nil {
-		s.log.Warn("не удалось применить retention сайта", "site_id", site.ID, "err", err)
+		s.log.Warn("не удалось применить retention проекта", "project_id", project.ID, "err", err)
 		return
 	}
 	for i := keep; i < len(list); i++ {
 		b := list[i]
 		if err := s.removeDirInside(b.RunDir); err != nil {
-			s.log.Warn("не удалось удалить старый прогон сайта", "backup_id", b.ID, "err", err)
+			s.log.Warn("не удалось удалить старый прогон проекта", "backup_id", b.ID, "err", err)
 			continue
 		}
-		if err := s.st.DeleteSiteBackup(ctx, b.ID); err != nil {
-			s.log.Warn("не удалось удалить запись прогона сайта", "backup_id", b.ID, "err", err)
+		if err := s.st.DeleteProjectBackup(ctx, b.ID); err != nil {
+			s.log.Warn("не удалось удалить запись прогона проекта", "backup_id", b.ID, "err", err)
 			continue
 		}
-		s.log.Info("старый прогон сайта удалён по retention", "site_id", site.ID, "backup_id", b.ID, "keep", keep)
+		s.log.Info("старый прогон проекта удалён по retention", "project_id", project.ID, "backup_id", b.ID, "keep", keep)
 	}
 }
 
 // ---------------------------------------------------------------- helpers
 
-// IsSiteRunning reports whether a run is queued or executing for the site.
-func (s *Service) IsSiteRunning(siteID int64) bool {
+// IsProjectRunning reports whether a run is queued or executing for the project.
+func (s *Service) IsProjectRunning(projectID int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.runningSites[siteID]
+	return s.running[projectID]
 }
 
-// RunningSites returns a set of sites with an active run.
-func (s *Service) RunningSites() map[int64]bool {
+// RunningProjects returns a set of projects with an active run.
+func (s *Service) RunningProjects() map[int64]bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make(map[int64]bool, len(s.runningSites))
-	for k, v := range s.runningSites {
+	out := make(map[int64]bool, len(s.running))
+	for k, v := range s.running {
 		out[k] = v
 	}
 	return out
 }
 
-func (s *Service) setSiteRunning(id int64, v bool) {
+func (s *Service) setProjectRunning(id int64, v bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if v {
-		s.runningSites[id] = true
+		s.running[id] = true
 	} else {
-		delete(s.runningSites, id)
+		delete(s.running, id)
 	}
 }
 
-func (s *Service) siteSlug(site *store.Site) string {
-	name := translit(strings.ToLower(site.Name))
+func (s *Service) projectSlug(project *store.Project) string {
+	name := translit(strings.ToLower(project.Name))
 	name = strings.Trim(slugRe.ReplaceAllString(name, "-"), "-")
 	if name == "" {
-		return fmt.Sprintf("site-%d", site.ID)
+		return fmt.Sprintf("project-%d", project.ID)
 	}
 	if len(name) > 40 {
 		name = strings.Trim(name[:40], "-")
 	}
-	return fmt.Sprintf("%s-%d", name, site.ID)
+	return fmt.Sprintf("%s-%d", name, project.ID)
 }
 
-func (s *Service) removeSiteRoot(site *store.Site) {
-	dir := filepath.Join(s.cfg.BackupDir, "sites", s.siteSlug(site))
+func (s *Service) removeProjectRoot(project *store.Project) {
+	dir := filepath.Join(s.cfg.BackupDir, "projects", s.projectSlug(project))
 	if err := s.removeDirInside(dir); err != nil {
-		s.log.Warn("не удалось удалить каталог сайта", "dir", dir, "err", err)
+		s.log.Warn("не удалось удалить каталог проекта", "dir", dir, "err", err)
 	}
 }
 
@@ -636,8 +636,8 @@ func (s *Service) removeDirInside(dir string) error {
 	return nil
 }
 
-func manifestFile(role string, res backup.Result) siteManifestFile {
-	return siteManifestFile{
+func manifestFile(role string, res backup.Result) projectManifestFile {
+	return projectManifestFile{
 		Role:      role,
 		Name:      filepath.Base(res.Path),
 		SizeBytes: res.SizeBytes,

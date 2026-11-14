@@ -1,10 +1,10 @@
 {{define "content"}}
 <div class="row between">
-  <h1>{{if .IsNew}}Новый сайт{{else}}Изменить сайт{{end}}</h1>
-  <a class="btn ghost" href="{{if .IsNew}}/sites{{else}}/sites/{{.SiteID}}{{end}}">Отмена</a>
+  <h1>{{if .IsNew}}Новый проект{{else}}Изменить проект{{end}}</h1>
+  <a class="btn ghost" href="{{if .IsNew}}/projects{{else}}/projects/{{.ProjectID}}{{end}}">Отмена</a>
 </div>
 
-<form method="post" action="{{.Action}}" class="card form" id="site-form" data-site-id="{{.SiteID}}">
+<form method="post" action="{{.Action}}" class="card form" id="project-form" data-project-id="{{.ProjectID}}">
   <div class="grid2">
     <label>Название
       <input name="name" value="{{.Form.Name}}" required placeholder="Например: example.com">
@@ -18,7 +18,7 @@
     <input type="checkbox" name="dir_enabled" value="1" {{if .Form.DirEnabled}}checked{{end}}>
     Бэкапить каталог
   </label>
-  <fieldset data-site-section="dir">
+  <fieldset data-project-section="dir">
     <legend>Каталог</legend>
     <label>Путь внутри контейнера
       <input name="dir_path" value="{{.Form.DirPath}}" list="source-list" placeholder="/sources/data">
@@ -37,11 +37,11 @@
     <input type="checkbox" name="db_enabled" value="1" {{if .Form.DBEnabled}}checked{{end}}>
     Бэкапить базу данных
   </label>
-  <fieldset data-site-section="db">
+  <fieldset data-project-section="db">
     <legend>База данных</legend>
     <div class="grid2">
       <label>Тип базы
-        <select name="db_type" id="site-db-type">
+        <select name="db_type" id="project-db-type">
           <option value="postgres" {{if eq .Form.DBType "postgres"}}selected{{end}}>PostgreSQL</option>
           <option value="mysql" {{if eq .Form.DBType "mysql"}}selected{{end}}>MySQL / MariaDB</option>
         </select>
@@ -90,9 +90,9 @@
 
   <div class="row gap wrap">
     <button class="btn primary" type="submit">Сохранить</button>
-    <button class="btn ghost" type="button" id="site-test-btn">Проверить подключение</button>
-    {{if not .IsNew}}<a class="btn ghost" href="/sites/{{.SiteID}}">История прогонов</a>{{end}}
+    <button class="btn ghost" type="button" id="project-test-btn">Проверить подключение</button>
+    {{if not .IsNew}}<a class="btn ghost" href="/projects/{{.ProjectID}}">История прогонов</a>{{end}}
   </div>
-  <div id="site-test-result" class="test-result"></div>
+  <div id="project-test-result" class="test-result"></div>
 </form>
 {{end}}

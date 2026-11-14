@@ -8,82 +8,82 @@ import (
 	"vbackuper/internal/store"
 )
 
-func TestSiteFromInputRequiresAPart(t *testing.T) {
+func TestProjectFromInputRequiresAPart(t *testing.T) {
 	s := &Service{cfg: &config.Config{}}
-	if _, err := s.siteFromInput(nil, SiteInput{Name: "site", Enabled: true}); err == nil {
-		t.Fatal("expected an error for a site without a directory and a database")
+	if _, err := s.projectFromInput(ProjectInput{Name: "project", Enabled: true}, nil); err == nil {
+		t.Fatal("expected an error for a project without a directory and a database")
 	}
 }
 
-func TestSiteFromInputDirOnly(t *testing.T) {
+func TestProjectFromInputDirOnly(t *testing.T) {
 	dir := t.TempDir()
 	s := &Service{cfg: &config.Config{SourceRoots: []string{dir}}}
-	site, err := s.siteFromInput(nil, SiteInput{
+	project, err := s.projectFromInput(ProjectInput{
 		Name: "example.com", Enabled: true, DirEnabled: true, DirPath: dir,
 		DirExclude: []string{"*.log, node_modules"},
-	})
+	}, nil)
 	if err != nil {
-		t.Fatalf("siteFromInput: %v", err)
+		t.Fatalf("projectFromInput: %v", err)
 	}
-	cfg, err := site.Dir()
+	cfg, err := project.Dir()
 	if err != nil || cfg == nil {
 		t.Fatalf("Dir = %+v, %v", cfg, err)
 	}
 	if cfg.Path != dir || len(cfg.Exclude) != 2 {
 		t.Fatalf("Dir = %+v", cfg)
 	}
-	if site.DBJSON != "" || site.DBType != "" {
-		t.Fatalf("database part must be empty: %+v", site)
+	if project.DBJSON != "" || project.DBType != "" {
+		t.Fatalf("database part must be empty: %+v", project)
 	}
 }
 
-func TestSiteFromInputRejectsPathOutsideRoots(t *testing.T) {
+func TestProjectFromInputRejectsPathOutsideRoots(t *testing.T) {
 	s := &Service{cfg: &config.Config{SourceRoots: []string{t.TempDir()}}}
-	_, err := s.siteFromInput(nil, SiteInput{
-		Name: "site", Enabled: true, DirEnabled: true, DirPath: t.TempDir(),
-	})
+	_, err := s.projectFromInput(ProjectInput{
+		Name: "project", Enabled: true, DirEnabled: true, DirPath: t.TempDir(),
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "разрешённых каталогов") {
 		t.Fatalf("err = %v, want a source-root error", err)
 	}
 }
 
-func TestNormalizeSiteDBKeepsOldPassword(t *testing.T) {
-	old := &store.Site{}
+func TestNormalizeProjectDBKeepsOldPassword(t *testing.T) {
+	old := &store.Project{}
 	if err := old.SetDB(store.TypePostgres, &store.DBConfig{
 		Host: "h", Port: 5432, Database: "d", User: "u", Password: "secret",
 	}); err != nil {
 		t.Fatalf("SetDB: %v", err)
 	}
-	kind, cfg, err := normalizeSiteDB(SiteInput{
+	kind, cfg, err := normalizeProjectDB(ProjectInput{
 		DBType: store.TypePostgres, DBHost: "h", DBName: "d", DBUser: "u",
 	}, old)
 	if err != nil {
-		t.Fatalf("normalizeSiteDB: %v", err)
+		t.Fatalf("normalizeProjectDB: %v", err)
 	}
 	if kind != store.TypePostgres || cfg.Password != "secret" || cfg.SSLMode != "prefer" {
 		t.Fatalf("kind = %q, cfg = %+v", kind, cfg)
 	}
 }
 
-func TestNormalizeSiteDBRejectsUnknownType(t *testing.T) {
-	if _, _, err := normalizeSiteDB(SiteInput{DBType: "oracle"}, nil); err == nil {
+func TestNormalizeProjectDBRejectsUnknownType(t *testing.T) {
+	if _, _, err := normalizeProjectDB(ProjectInput{DBType: "oracle"}, nil); err == nil {
 		t.Fatal("expected an error for an unknown database type")
 	}
 }
 
-func TestSiteSlug(t *testing.T) {
+func TestProjectSlug(t *testing.T) {
 	s := &Service{}
 	cases := []struct {
 		name string
 		want string
 	}{
 		{"example.com", "example-com-4"},
-		{"Мой сайт", "moy-sayt-4"},
-		{"", "site-4"},
+		{"Мой проект", "moy-proekt-4"},
+		{"", "project-4"},
 	}
 	for _, c := range cases {
-		if got := s.siteSlug(&store.Site{ID: 4, Name: c.name}); got != c.want {
-			t.Errorf("siteSlug(%q) = %q, want %q", c.name, got, c.want)
+		if got := s.projectSlug(&store.Project{ID: 4, Name: c.name}); got != c.want {
+			t.Errorf("projectSlug(%q) = %q, want %q", c.name, got, c.want)
 		}
 	}
 }

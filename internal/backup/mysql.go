@@ -72,11 +72,7 @@ func mysqlEnv(cfg store.DBConfig) []string {
 	return append(os.Environ(), "MYSQL_PWD="+cfg.Password)
 }
 
-func runMySQL(ctx context.Context, t *store.Target, destFile string, logs *LogBuffer) (Result, error) {
-	cfg, err := t.DBConfig()
-	if err != nil {
-		return Result{}, err
-	}
+func runMySQL(ctx context.Context, cfg store.DBConfig, destFile string, logs *LogBuffer) (Result, error) {
 	dump, _ := mysqlBins()
 	if _, err := exec.LookPath(dump); err != nil {
 		return Result{}, fmt.Errorf("клиент mysqldump не найден в контейнере: %w", err)
@@ -146,11 +142,7 @@ func runMySQL(ctx context.Context, t *store.Target, destFile string, logs *LogBu
 	return res, nil
 }
 
-func testMySQL(ctx context.Context, t *store.Target) error {
-	cfg, err := t.DBConfig()
-	if err != nil {
-		return err
-	}
+func testMySQL(ctx context.Context, cfg store.DBConfig) error {
 	_, client := mysqlBins()
 	bin, err := exec.LookPath(client)
 	if err != nil {

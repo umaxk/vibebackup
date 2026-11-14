@@ -31,7 +31,7 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
-var pages = []string{"login", "dashboard", "target_form", "target_detail", "sites", "site_form", "site_detail", "backups", "settings"}
+var pages = []string{"login", "projects", "project_form", "project_detail", "backups", "settings"}
 
 const sessionCookie = "vbc_session"
 
@@ -84,68 +84,73 @@ func (w *Web) Routes() http.Handler {
 		mux.HandleFunc("POST /api/login", w.apiLogin)
 		mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
 
-		mux.HandleFunc("GET /{$}", w.dashboard)
-		mux.HandleFunc("GET /targets/new", w.targetNew)
-		mux.HandleFunc("POST /targets", w.targetCreate)
-		mux.HandleFunc("GET /targets/{id}", w.targetDetail)
-		mux.HandleFunc("GET /targets/{id}/edit", w.targetEdit)
-		mux.HandleFunc("POST /targets/{id}", w.targetUpdate)
-		mux.HandleFunc("POST /targets/{id}/delete", w.targetDelete)
-		mux.HandleFunc("POST /targets/{id}/run", w.targetRun)
-		mux.HandleFunc("POST /targets/{id}/toggle", w.targetToggle)
-		mux.HandleFunc("POST /targets/{id}/test", w.targetTest)
-		mux.HandleFunc("GET /sites", w.sitesPage)
-		mux.HandleFunc("GET /sites/new", w.siteNew)
-		mux.HandleFunc("POST /sites", w.siteCreate)
-		mux.HandleFunc("GET /sites/{id}", w.siteDetail)
-		mux.HandleFunc("GET /sites/{id}/edit", w.siteEdit)
-		mux.HandleFunc("POST /sites/{id}", w.siteUpdate)
-		mux.HandleFunc("POST /sites/{id}/delete", w.siteDelete)
-		mux.HandleFunc("POST /sites/{id}/run", w.siteRun)
-		mux.HandleFunc("POST /sites/{id}/toggle", w.siteToggle)
-		mux.HandleFunc("POST /sites/{id}/test", w.siteTest)
-		mux.HandleFunc("GET /site-backups/{id}/download", w.siteBackupDownload)
-		mux.HandleFunc("POST /site-backups/{id}/delete", w.siteBackupDelete)
+		mux.HandleFunc("GET /{$}", w.projectsPage)
+		mux.HandleFunc("GET /projects", w.projectsPage)
+		mux.HandleFunc("GET /projects/new", w.projectNew)
+		mux.HandleFunc("POST /projects", w.projectCreate)
+		mux.HandleFunc("GET /projects/{id}", w.projectDetail)
+		mux.HandleFunc("GET /projects/{id}/edit", w.projectEdit)
+		mux.HandleFunc("POST /projects/{id}", w.projectUpdate)
+		mux.HandleFunc("POST /projects/{id}/delete", w.projectDelete)
+		mux.HandleFunc("POST /projects/{id}/run", w.projectRun)
+		mux.HandleFunc("POST /projects/{id}/toggle", w.projectToggle)
+		mux.HandleFunc("POST /projects/{id}/test", w.projectTest)
+		mux.HandleFunc("GET /project-backups/{id}/download", w.projectBackupDownload)
+		mux.HandleFunc("POST /project-backups/{id}/delete", w.projectBackupDelete)
 		mux.HandleFunc("GET /backups", w.backupsPage)
-		mux.HandleFunc("GET /backups/{id}/download", w.backupDownload)
-		mux.HandleFunc("POST /backups/{id}/delete", w.backupDelete)
 		mux.HandleFunc("GET /settings", w.settingsPage)
 		mux.HandleFunc("POST /settings", w.settingsSave)
+
+		// The former "sites" entity keeps working under its old addresses for
+		// one release. 307 preserves the method and the body of form posts.
+		mux.Handle("/sites", redirectPrefix("/sites", "/projects"))
+		mux.Handle("/sites/", redirectPrefix("/sites", "/projects"))
+		mux.Handle("/site-backups", redirectPrefix("/site-backups", "/project-backups"))
+		mux.Handle("/site-backups/", redirectPrefix("/site-backups", "/project-backups"))
 	}
 
-	mux.HandleFunc("GET /api/targets", w.apiTargetsList)
-	mux.HandleFunc("POST /api/targets", w.apiTargetCreate)
-	mux.HandleFunc("GET /api/targets/{id}", w.apiTargetGet)
-	mux.HandleFunc("PUT /api/targets/{id}", w.apiTargetUpdate)
-	mux.HandleFunc("DELETE /api/targets/{id}", w.apiTargetDelete)
-	mux.HandleFunc("POST /api/targets/{id}/test", w.apiTargetTest)
-	mux.HandleFunc("POST /api/targets/{id}/run", w.apiTargetRun)
-	mux.HandleFunc("GET /api/targets/{id}/backups", w.apiTargetBackups)
-	mux.HandleFunc("GET /api/backups", w.apiBackupsList)
-	mux.HandleFunc("GET /api/backups/{id}", w.apiBackupGet)
-	mux.HandleFunc("DELETE /api/backups/{id}", w.apiBackupDelete)
-	mux.HandleFunc("GET /api/backups/{id}/download", w.backupDownload)
-	mux.HandleFunc("GET /api/sites", w.apiSitesList)
-	mux.HandleFunc("POST /api/sites", w.apiSiteCreate)
-	mux.HandleFunc("POST /api/sites/test", w.apiSiteTest)
-	mux.HandleFunc("GET /api/sites/{id}", w.apiSiteGet)
-	mux.HandleFunc("PUT /api/sites/{id}", w.apiSiteUpdate)
-	mux.HandleFunc("DELETE /api/sites/{id}", w.apiSiteDelete)
-	mux.HandleFunc("POST /api/sites/{id}/test", w.apiSiteTestStored)
-	mux.HandleFunc("POST /api/sites/{id}/run", w.apiSiteRun)
-	mux.HandleFunc("GET /api/sites/{id}/backups", w.apiSiteBackups)
-	mux.HandleFunc("GET /api/site-backups", w.apiSiteBackupsList)
-	mux.HandleFunc("GET /api/site-backups/{id}", w.apiSiteBackupGet)
-	mux.HandleFunc("DELETE /api/site-backups/{id}", w.apiSiteBackupDelete)
-	mux.HandleFunc("GET /api/site-backups/{id}/download", w.siteBackupDownload)
+	w.registerProjectAPI(mux, "/api/projects", "/api/project-backups")
+	// API aliases of the former "sites" entity, kept for one release.
+	w.registerProjectAPI(mux, "/api/sites", "/api/site-backups")
+
 	mux.HandleFunc("GET /api/options/sources", w.apiSources)
 	mux.HandleFunc("POST /api/cron/preview", w.apiCronPreview)
-	mux.HandleFunc("POST /api/test", w.apiTest)
 	mux.HandleFunc("GET /api/settings", w.apiSettingsGet)
 	mux.HandleFunc("PUT /api/settings", w.apiSettingsUpdate)
 	mux.HandleFunc("GET /api/system", w.apiSystem)
 
 	return w.middleware(mux)
+}
+
+// registerProjectAPI mounts the project and project-run API under the given
+// prefixes, so new and legacy names can share one implementation.
+func (w *Web) registerProjectAPI(mux *http.ServeMux, projectPrefix, backupPrefix string) {
+	mux.HandleFunc("GET "+projectPrefix, w.apiProjectsList)
+	mux.HandleFunc("POST "+projectPrefix, w.apiProjectCreate)
+	mux.HandleFunc("POST "+projectPrefix+"/test", w.apiProjectTest)
+	mux.HandleFunc("GET "+projectPrefix+"/{id}", w.apiProjectGet)
+	mux.HandleFunc("PUT "+projectPrefix+"/{id}", w.apiProjectUpdate)
+	mux.HandleFunc("DELETE "+projectPrefix+"/{id}", w.apiProjectDelete)
+	mux.HandleFunc("POST "+projectPrefix+"/{id}/test", w.apiProjectTestStored)
+	mux.HandleFunc("POST "+projectPrefix+"/{id}/run", w.apiProjectRun)
+	mux.HandleFunc("GET "+projectPrefix+"/{id}/backups", w.apiProjectBackups)
+
+	mux.HandleFunc("GET "+backupPrefix, w.apiProjectBackupsList)
+	mux.HandleFunc("GET "+backupPrefix+"/{id}", w.apiProjectBackupGet)
+	mux.HandleFunc("DELETE "+backupPrefix+"/{id}", w.apiProjectBackupDelete)
+	mux.HandleFunc("GET "+backupPrefix+"/{id}/download", w.projectBackupDownload)
+}
+
+// redirectPrefix permanently (for this release) forwards an old path prefix to
+// its new location, keeping the rest of the path and the query string.
+func redirectPrefix(oldPrefix, newPrefix string) http.Handler {
+	return http.HandlerFunc(func(resp http.ResponseWriter, r *http.Request) {
+		target := newPrefix + strings.TrimPrefix(r.URL.Path, oldPrefix)
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(resp, r, target, http.StatusTemporaryRedirect)
+	})
 }
 
 func (w *Web) middleware(next http.Handler) http.Handler {

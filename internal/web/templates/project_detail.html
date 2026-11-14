@@ -1,0 +1,111 @@
+{{define "content"}}
+<div class="row between wrap">
+  <div>
+    <h1>{{.Project.Name}}</h1>
+    <p class="muted">
+      {{if .Project.Schedule}}<code>{{.Project.Schedule}}</code>{{else}}только вручную{{end}}
+      · создан {{fmtTime .Project.CreatedAt}}
+      {{if not .Project.Enabled}} · <span class="badge off">выключен</span>{{end}}
+    </p>
+  </div>
+  <div class="row gap wrap">
+    <form method="post" action="/projects/{{.Project.ID}}/run"><button class="btn primary" type="submit">Запустить прогон</button></form>
+    <a class="btn" href="/projects/{{.Project.ID}}/edit">Изменить</a>
+  </div>
+</div>
+
+{{if .ScheduleError}}<div class="flash err">Расписание недействительно: {{.ScheduleError}}</div>{{end}}
+
+<div class="two-col">
+  <div class="card">
+    <h2>Параметры</h2>
+    <dl class="props">
+      <dt>Следующий запуск</dt><dd>{{fmtTimeP .Project.NextRun}}</dd>
+      <dt>Хранить прогонов</dt><dd>{{if .Project.RetentionKeep}}{{.Project.RetentionKeep}}{{else}}по умолчанию{{end}}</dd>
+      {{if .Project.Dir}}
+        <dt>Каталог</dt><dd><code>{{.Project.Dir.Path}}</code></dd>
+        <dt>Исключения</dt><dd>{{if .Project.Dir.Exclude}}{{join .Project.Dir.Exclude ", "}}{{else}}—{{end}}</dd>
+      {{end}}
+      {{if .Project.DB}}
+        <dt>База данных</dt><dd>{{.Project.DBTypeLabel}}</dd>
+        <dt>Сервер</dt><dd><code>{{.Project.DB.Host}}:{{.Project.DB.Port}}</code></dd>
+        <dt>База</dt><dd>{{.Project.DB.Database}}</dd>
+        <dt>Пользователь</dt><dd>{{.Project.DB.User}}</dd>
+        {{if .Project.DB.SSLMode}}<dt>SSL mode</dt><dd>{{.Project.DB.SSLMode}}</dd>{{end}}
+        <dt>Пароль</dt><dd>{{if .Project.DB.PasswordSet}}задан{{else}}не задан{{end}}</dd>
+      {{end}}
+      <dt>Последний прогон</dt>
+      <dd>
+        {{if .Project.Last}}
+          <span class="badge {{.Project.Last.StatusClass}}">{{.Project.Last.StatusLabel}}</span>
+          {{fmtTime .Project.Last.StartedAt}}
+        {{else}}нет{{end}}
+      </dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>Управление</h2>
+    <form method="post" action="/projects/{{.Project.ID}}/toggle" class="stack">
+      <input type="hidden" name="back" value="/projects/{{.Project.ID}}">
+      <button class="btn" type="submit">{{if .Project.Enabled}}Выключить расписание{{else}}Включить расписание{{end}}</button>
+    </form>
+    <form method="post" action="/projects/{{.Project.ID}}/test" class="stack">
+      <button class="btn" type="submit">Проверить подключение</button>
+    </form>
+    <form method="post" action="/projects/{{.Project.ID}}/delete" class="stack danger-zone"
+          data-confirm="Удалить проект «{{.Project.Name}}»?">
+      <label class="check"><input type="checkbox" name="delete_files" value="1" checked> удалить и файлы прогонов</label>
+      <button class="btn danger" type="submit">Удалить проект</button>
+    </form>
+  </div>
+</div>
+
+<div class="row between">
+  <h2>История прогонов</h2>
+  <a class="btn ghost small" href="/backups?project_id={{.Project.ID}}">Все прогоны проекта</a>
+</div>
+
+{{if not .Backups}}
+<div class="card empty">Прогонов ещё не было. Нажмите «Запустить прогон», чтобы создать первый.</div>
+{{else}}
+<div class="card table-wrap">
+<table class="grid">
+  <thead>
+    <tr><th>Статус</th><th>Начат</th><th>Размер</th><th>Длительность</th><th>Файлы</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .Backups}}
+    {{$run := .}}
+    <tr>
+      <td><span class="badge {{.StatusClass}}">{{.StatusLabel}}</span></td>
+      <td>{{fmtTime .StartedAt}}</td>
+      <td>{{fmtBytes .SizeBytes}}</td>
+      <td>{{fmtDuration .DurationMS}}</td>
+      <td class="file">
+        {{range .Files}}<div><a href="/project-backups/{{$run.ID}}/download?file={{.Role}}">{{.Name}}</a> <span class="muted small">{{fmtBytes .SizeBytes}}</span></div>{{else}}—{{end}}
+      </td>
+      <td class="actions-cell">
+        {{if .Files}}<a class="btn small ghost" href="/project-backups/{{.ID}}/download">Скачать всё</a>{{end}}
+        <form method="post" action="/project-backups/{{.ID}}/delete" data-confirm="Удалить этот прогон и все его файлы?">
+          <input type="hidden" name="back" value="/projects/{{$.Project.ID}}">
+          <button class="btn small danger" type="submit">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {{if .ErrorText}}
+    <tr class="log-row"><td colspan="6"><div class="flash err" style="margin:0">{{.ErrorText}}</div></td></tr>
+    {{end}}
+    {{if .Log}}
+    <tr class="log-row"><td colspan="6">
+      <details><summary>Лог{{if .ErrorText}} (ошибка){{end}}</summary><pre>{{.Log}}</pre></details>
+    </td></tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{if .HasRunning}}<p class="muted hint" id="live">Прогон выполняется, страница обновится через <span data-live>8</span> с…</p>{{end}}
+{{end}}

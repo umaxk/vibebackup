@@ -23,87 +23,56 @@ func TestTemplatesRender(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
-	last := &backupView{
-		ID: 5, TargetID: 1, TargetName: "Фото", Status: "ok", StatusLabel: "успешно",
-		StatusClass: "ok", StartedAt: now, SizeBytes: 2048, DurationMS: 1500,
-		FileName: "foto-1-20261114T030000.tar.zst", SHA256: strings.Repeat("a", 64),
-		Path: "/backups/foto-1/2026/11/foto-1-20261114T030000.tar.zst", Log: "готово",
-	}
-	row := targetRow{
-		ID: 1, Name: "Фото", Type: "dir", TypeLabel: "каталог", Schedule: "0 3 * * *",
-		Enabled: true, NextRun: &now, Last: last,
-	}
-	base := viewBase{Title: "Тест", Version: "test", Authed: true}
-
-	siteLast := &siteBackupView{
-		ID: 9, SiteID: 2, SiteName: "example.com", Status: "ok", StatusLabel: "успешно",
+	run := &projectBackupView{
+		ID: 9, ProjectID: 2, ProjectName: "example.com", Status: "ok", StatusLabel: "успешно",
 		StatusClass: "ok", StartedAt: now, SizeBytes: 4096, DurationMS: 2500,
-		RunDir: "/backups/sites/example-com-2/2026/11/20261114T030000-b9",
-		Files: []siteFileView{
+		RunDir: "/backups/projects/example-com-2/2026/11/20261114T030000-b9",
+		Files: []projectFileView{
+			{Role: "manifest", RoleLabel: "манифест", Name: "manifest.json", SizeBytes: 96},
 			{Role: "dir", RoleLabel: "каталог", Name: "files.tar.zst", SizeBytes: 3000},
 			{Role: "db", RoleLabel: "база данных", Name: "db.dump", SizeBytes: 1000},
-			{Role: "manifest", RoleLabel: "манифест", Name: "manifest.json", SizeBytes: 96},
 		},
 		HasDir: true, HasDB: true, Log: "готово",
 	}
-	siteRowVal := siteRow{
+	row := projectRow{
 		ID: 2, Name: "example.com", Schedule: "0 3 * * *", Enabled: true, NextRun: &now,
-		Last: siteLast, Running: true, DirPath: "/sources/site", DBType: "postgres",
+		Last: run, Running: true, DirPath: "/sources/project", DBType: "postgres",
 		DBTypeLabel: "PostgreSQL",
 		DB:          &dbInfo{Host: "postgres", Port: 5432, Database: "example", User: "backup", PasswordSet: true},
 	}
+	base := viewBase{Title: "Тест", Version: "test", Authed: true}
 
 	datas := map[string]any{
 		"login": loginData{viewBase: viewBase{Title: "Вход", Version: "test"}},
-		"dashboard": dashboardData{
-			viewBase: base, Targets: []targetRow{row}, HasRunning: true,
+		"projects": projectsData{
+			viewBase: base, Projects: []projectRow{row}, HasRunning: true,
 		},
-		"target_form": formData{
-			viewBase: base, IsNew: true, Action: "/targets",
-			Form: targetForm{
-				Name: "Фото", Type: "dir", Schedule: "0 3 * * *", RetentionKeep: 7, Enabled: true,
-				DirPath: "/sources/photo", DBPort: "5432", DBSSLMode: "prefer", PasswordSet: true,
-			},
-			SourceRoots: []string{"/sources", "/sources/photo"},
-			NextRuns:    []time.Time{now, now.Add(time.Hour)},
-		},
-		"target_detail": detailData{
-			viewBase: base,
-			Target: targetInfo{
-				ID: 1, Name: "Фото", Type: "dir", TypeLabel: "каталог", Schedule: "0 3 * * *",
-				Enabled: true, RetentionKeep: 7, CreatedAt: now, NextRun: &now,
-				Dir:  &store.DirConfig{Path: "/sources/photo", Exclude: []string{"*.tmp"}},
-				Last: last,
-			},
-			Backups: []backupView{*last}, HasRunning: true,
-		},
-		"backups": backupsData{
-			viewBase: base, Backups: []backupView{*last}, SiteRuns: []siteBackupView{*siteLast},
-			Targets: []targetRow{row}, Sites: []siteRow{siteRowVal}, Selected: 1, SelectedSite: 2, HasRunning: true,
-		},
-		"sites": sitesData{viewBase: base, Sites: []siteRow{siteRowVal}, HasRunning: true},
-		"site_form": siteFormData{
-			viewBase: base, IsNew: true, Action: "/sites",
-			Form: siteForm{
+		"project_form": projectFormData{
+			viewBase: base, IsNew: true, Action: "/projects",
+			Form: projectForm{
 				Name: "example.com", Schedule: "0 3 * * *", RetentionKeep: 7, Enabled: true,
-				DirEnabled: true, DirPath: "/sources/site", DirExclude: "*.log",
+				DirEnabled: true, DirPath: "/sources/project", DirExclude: "*.log",
 				DBEnabled: true, DBType: "postgres", DBHost: "postgres", DBPort: "5432",
 				DBName: "example", DBUser: "backup", DBSSLMode: "prefer", PasswordSet: true,
 			},
-			SourceRoots: []string{"/sources", "/sources/site"},
+			SourceRoots: []string{"/sources", "/sources/project"},
 			NextRuns:    []time.Time{now, now.Add(time.Hour)},
 		},
-		"site_detail": siteDetailData{
+		"project_detail": projectDetailData{
 			viewBase: base,
-			Site: siteInfo{
+			Project: projectInfo{
 				ID: 2, Name: "example.com", Schedule: "0 3 * * *", Enabled: true, RetentionKeep: 7,
 				CreatedAt: now, NextRun: &now,
-				Dir:    &store.DirConfig{Path: "/sources/site", Exclude: []string{"*.log"}},
+				Dir:    &store.DirConfig{Path: "/sources/project", Exclude: []string{"*.log"}},
 				DBType: "postgres", DBTypeLabel: "PostgreSQL",
 				DB:   &dbInfo{Host: "postgres", Port: 5432, Database: "example", User: "backup", PasswordSet: true},
-				Last: siteLast,
+				Last: run,
 			},
-			Backups: []siteBackupView{*siteLast}, HasRunning: true,
+			Backups: []projectBackupView{*run}, HasRunning: true,
+		},
+		"backups": backupsData{
+			viewBase: base, ProjectRuns: []projectBackupView{*run},
+			Projects: []projectRow{row}, Selected: 2, HasRunning: true,
 		},
 		"settings": settingsData{
 			viewBase:  base,
@@ -157,7 +126,7 @@ func TestAPIKeyAuth(t *testing.T) {
 		{"basic in ui mode", func(r *http.Request) { r.SetBasicAuth("admin", "pw") }, true},
 	}
 	for _, c := range cases {
-		r := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+		r := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 		c.setup(r)
 		if got := w.authenticated(r); got != c.want {
 			t.Errorf("%s: authenticated = %v, want %v", c.name, got, c.want)
@@ -168,19 +137,19 @@ func TestAPIKeyAuth(t *testing.T) {
 func TestAPIOnlyModeRejectsOtherCredentials(t *testing.T) {
 	w := &Web{cfg: testConfig(false, "key-one-0123456789")}
 
-	r := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 	r.SetBasicAuth("admin", "pw")
 	if w.authenticated(r) {
 		t.Fatal("Basic auth must not work in API-only mode")
 	}
 
-	r = httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+	r = httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: w.newSessionValue()})
 	if w.authenticated(r) {
 		t.Fatal("session cookie must not work in API-only mode")
 	}
 
-	r = httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+	r = httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 	r.Header.Set("X-API-Key", "key-one-0123456789")
 	if !w.authenticated(r) {
 		t.Fatal("API key must work in API-only mode")
@@ -197,30 +166,38 @@ func TestAPIOnlyModeHidesUI(t *testing.T) {
 	cases := []struct {
 		method string
 		path   string
+		key    string
 		want   int
 	}{
-		{http.MethodGet, "/", http.StatusNotFound},
-		{http.MethodGet, "/login", http.StatusNotFound},
-		{http.MethodGet, "/targets/new", http.StatusNotFound},
-		{http.MethodGet, "/sites", http.StatusNotFound},
-		{http.MethodGet, "/sites/new", http.StatusNotFound},
-		{http.MethodPost, "/login", http.StatusNotFound},
-		{http.MethodGet, "/static/app.css", http.StatusNotFound},
-		{http.MethodGet, "/favicon.ico", http.StatusNotFound},
-		{http.MethodGet, "/healthz", http.StatusOK},
-		{http.MethodGet, "/api/targets", http.StatusUnauthorized},
-		{http.MethodPost, "/api/login", http.StatusUnauthorized},
+		{http.MethodGet, "/", "", http.StatusNotFound},
+		{http.MethodGet, "/login", "", http.StatusNotFound},
+		{http.MethodGet, "/projects", "", http.StatusNotFound},
+		{http.MethodGet, "/projects/new", "", http.StatusNotFound},
+		{http.MethodGet, "/sites", "", http.StatusNotFound},
+		{http.MethodGet, "/site-backups/9/download", "", http.StatusNotFound},
+		{http.MethodPost, "/login", "", http.StatusNotFound},
+		{http.MethodGet, "/static/app.css", "", http.StatusNotFound},
+		{http.MethodGet, "/favicon.ico", "", http.StatusNotFound},
+		{http.MethodGet, "/healthz", "", http.StatusOK},
+		{http.MethodGet, "/api/projects", "", http.StatusUnauthorized},
+		{http.MethodGet, "/api/targets", "key-one-0123456789", http.StatusNotFound},
+		{http.MethodGet, "/api/backups", "key-one-0123456789", http.StatusNotFound},
+		{http.MethodPost, "/api/login", "", http.StatusUnauthorized},
 	}
 	for _, c := range cases {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
+		r := httptest.NewRequest(c.method, c.path, nil)
+		if c.key != "" {
+			r.Header.Set("X-API-Key", c.key)
+		}
+		h.ServeHTTP(rec, r)
 		if rec.Code != c.want {
 			t.Errorf("%s %s = %d, want %d", c.method, c.path, rec.Code, c.want)
 		}
 	}
 
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
 	r.Header.Set("X-API-Key", "wrong")
 	h.ServeHTTP(rec, r)
 	if rec.Code != http.StatusUnauthorized {
@@ -237,5 +214,41 @@ func TestUIEnabledKeepsLoginPublic(t *testing.T) {
 	w.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /login = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+// TestLegacyUIPathsRedirect checks the temporary compatibility redirects of the
+// former "sites" entity.
+func TestLegacyUIPathsRedirect(t *testing.T) {
+	w, err := New(testConfig(true), nil, nil, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	h := w.Routes()
+
+	cases := []struct {
+		method   string
+		path     string
+		wantPath string
+	}{
+		{http.MethodGet, "/sites", "/projects"},
+		{http.MethodGet, "/sites/7", "/projects/7"},
+		{http.MethodGet, "/sites/7/edit", "/projects/7/edit"},
+		{http.MethodGet, "/site-backups/9/download", "/project-backups/9/download"},
+		{http.MethodGet, "/sites?x=1", "/projects?x=1"},
+	}
+	for _, c := range cases {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(c.method, c.path, nil)
+		r.SetBasicAuth("admin", "pw")
+		h.ServeHTTP(rec, r)
+		if rec.Code != http.StatusTemporaryRedirect {
+			t.Errorf("%s %s = %d, want %d", c.method, c.path, rec.Code, http.StatusTemporaryRedirect)
+			continue
+		}
+		location := rec.Header().Get("Location")
+		if location != c.wantPath {
+			t.Errorf("%s %s -> %q, want %q", c.method, c.path, location, c.wantPath)
+		}
 	}
 }

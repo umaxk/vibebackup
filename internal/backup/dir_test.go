@@ -50,14 +50,11 @@ func TestRunDirArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	target := &store.Target{ID: 1, Type: store.TypeDir}
-	if err := target.SetConfig(store.DirConfig{Path: src, Exclude: []string{"node_modules", "*.log"}}); err != nil {
-		t.Fatal(err)
-	}
+	spec := Spec{Type: store.TypeDir, Dir: store.DirConfig{Path: src, Exclude: []string{"node_modules", "*.log"}}}
 
 	dest := t.TempDir()
 	logs := NewLogBuffer(4096)
-	res, err := Run(context.Background(), target, dest, "sample-1", logs)
+	res, err := Run(context.Background(), spec, dest, "sample-1", logs)
 	if err != nil {
 		t.Fatalf("Run: %v\nlog:\n%s", err, logs.String())
 	}
@@ -106,11 +103,8 @@ func TestRunDirArchive(t *testing.T) {
 func TestRunDirRejectsNestedDestination(t *testing.T) {
 	src := t.TempDir()
 	mustWrite(t, filepath.Join(src, "a.txt"), "hello")
-	target := &store.Target{ID: 1, Type: store.TypeDir}
-	if err := target.SetConfig(store.DirConfig{Path: src}); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Run(context.Background(), target, filepath.Join(src, "backups"), "x-1", NewLogBuffer(1024))
+	spec := Spec{Type: store.TypeDir, Dir: store.DirConfig{Path: src}}
+	_, err := Run(context.Background(), spec, filepath.Join(src, "backups"), "x-1", NewLogBuffer(1024))
 	if err == nil {
 		t.Fatal("expected an error when destination is inside the source")
 	}

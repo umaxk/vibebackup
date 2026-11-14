@@ -2,72 +2,29 @@
 <div class="row between wrap">
   <h1>Бэкапы</h1>
   <form method="get" action="/backups" class="row gap wrap">
-    <select name="target_id">
-      <option value="0">все цели</option>
-      {{range .Targets}}
+    <select name="project_id">
+      <option value="0">все проекты</option>
+      {{range .Projects}}
       <option value="{{.ID}}" {{if eq $.Selected .ID}}selected{{end}}>{{.Name}}</option>
-      {{end}}
-    </select>
-    <select name="site_id">
-      <option value="0">все сайты</option>
-      {{range .Sites}}
-      <option value="{{.ID}}" {{if eq $.SelectedSite .ID}}selected{{end}}>{{.Name}}</option>
       {{end}}
     </select>
     <button class="btn" type="submit">Показать</button>
   </form>
 </div>
 
-<h2>Цели</h2>
-{{if not .Backups}}
-<div class="card empty">Бэкапов целей нет.</div>
+<h2>Прогоны проектов</h2>
+{{if not .ProjectRuns}}
+<div class="card empty">Прогонов проектов нет.</div>
 {{else}}
 <div class="card table-wrap">
 <table class="grid">
   <thead>
-    <tr><th>Цель</th><th>Статус</th><th>Начат</th><th>Размер</th><th>Длительность</th><th>Файл</th><th></th></tr>
+    <tr><th>Проект</th><th>Статус</th><th>Начат</th><th>Размер</th><th>Длительность</th><th>Файлы</th><th></th></tr>
   </thead>
   <tbody>
-  {{range .Backups}}
+  {{range .ProjectRuns}}
     <tr>
-      <td><a href="/targets/{{.TargetID}}">{{.TargetName}}</a></td>
-      <td><span class="badge {{.StatusClass}}">{{.StatusLabel}}</span></td>
-      <td>{{fmtTime .StartedAt}}</td>
-      <td>{{fmtBytes .SizeBytes}}</td>
-      <td>{{fmtDuration .DurationMS}}</td>
-      <td class="file">{{if .FileName}}<a href="/backups/{{.ID}}/download">{{.FileName}}</a>{{else}}—{{end}}</td>
-      <td class="actions-cell">
-        {{if .FileName}}<a class="btn small ghost" href="/backups/{{.ID}}/download">Скачать</a>{{end}}
-        <form method="post" action="/backups/{{.ID}}/delete" data-confirm="Удалить этот бэкап и его файл?">
-          <input type="hidden" name="back" value="/backups">
-          <button class="btn small danger" type="submit">Удалить</button>
-        </form>
-      </td>
-    </tr>
-    {{if .Log}}
-    <tr class="log-row"><td colspan="7">
-      <details><summary>Лог{{if .ErrorText}} (ошибка){{end}}</summary><pre>{{.Log}}</pre></details>
-    </td></tr>
-    {{end}}
-  {{end}}
-  </tbody>
-</table>
-</div>
-{{end}}
-
-<h2>Сайты</h2>
-{{if not .SiteRuns}}
-<div class="card empty">Прогонов сайтов нет.</div>
-{{else}}
-<div class="card table-wrap">
-<table class="grid">
-  <thead>
-    <tr><th>Сайт</th><th>Статус</th><th>Начат</th><th>Размер</th><th>Длительность</th><th>Файлы</th><th></th></tr>
-  </thead>
-  <tbody>
-  {{range .SiteRuns}}
-    <tr>
-      <td><a href="/sites/{{.SiteID}}">{{.SiteName}}</a></td>
+      <td><a href="/projects/{{.ProjectID}}">{{.ProjectName}}</a></td>
       <td><span class="badge {{.StatusClass}}">{{.StatusLabel}}</span></td>
       <td>{{fmtTime .StartedAt}}</td>
       <td>{{fmtBytes .SizeBytes}}</td>
@@ -78,8 +35,8 @@
         {{if not .HasDir}}{{if not .HasDB}}—{{end}}{{end}}
       </td>
       <td class="actions-cell">
-        <a class="btn small ghost" href="/site-backups/{{.ID}}/download">Скачать всё</a>
-        <form method="post" action="/site-backups/{{.ID}}/delete" data-confirm="Удалить этот прогон и все его файлы?">
+        <a class="btn small ghost" href="/project-backups/{{.ID}}/download">Скачать всё</a>
+        <form method="post" action="/project-backups/{{.ID}}/delete" data-confirm="Удалить этот прогон и все его файлы?">
           <input type="hidden" name="back" value="/backups">
           <button class="btn small danger" type="submit">Удалить</button>
         </form>
@@ -96,5 +53,5 @@
 </div>
 {{end}}
 
-{{if .HasRunning}}<p class="muted hint" id="live">Есть активные бэкапы, страница обновится через <span data-live>8</span> с…</p>{{end}}
+{{if .HasRunning}}<p class="muted hint" id="live">Есть активные прогоны, страница обновится через <span data-live>8</span> с…</p>{{end}}
 {{end}}

@@ -1,17 +1,17 @@
 {{define "content"}}
 <div class="row between">
-  <h1>Сайты</h1>
-  <a class="btn primary" href="/sites/new">Добавить сайт</a>
+  <h1>Проекты</h1>
+  <a class="btn primary" href="/projects/new">Добавить проект</a>
 </div>
 
 <p class="muted small">
-  Сайт — это совместный бэкап каталога и базы данных: один запуск, один набор файлов,
+  Проект — это совместный бэкап каталога и базы данных: один запуск, один набор файлов,
   одна история и одно правило хранения.
 </p>
 
-{{if not .Sites}}
+{{if not .Projects}}
 <div class="card empty">
-  Сайтов пока нет. <a href="/sites/new">Добавьте сайт</a>, чтобы сохранять каталог и базу вместе.
+  Проектов пока нет. <a href="/projects/new">Добавьте проект</a>, чтобы сохранять каталог и базу вместе.
 </div>
 {{else}}
 <div class="card table-wrap">
@@ -28,9 +28,9 @@
     </tr>
   </thead>
   <tbody>
-  {{range .Sites}}
+  {{range .Projects}}
     <tr>
-      <td><a href="/sites/{{.ID}}">{{.Name}}</a>{{if not .Enabled}} <span class="badge off">выключен</span>{{end}}</td>
+      <td><a href="/projects/{{.ID}}">{{.Name}}</a>{{if not .Enabled}} <span class="badge off">выключен</span>{{end}}</td>
       <td>{{if .Schedule}}<code>{{.Schedule}}</code>{{else}}<span class="muted">вручную</span>{{end}}</td>
       <td>{{fmtTimeP .NextRun}}</td>
       <td>
@@ -48,10 +48,10 @@
       </td>
       <td>{{if .Last}}{{fmtBytes .Last.SizeBytes}}{{else}}—{{end}}</td>
       <td class="actions-cell">
-        <form method="post" action="/sites/{{.ID}}/run"><button class="btn small" type="submit">Сейчас</button></form>
-        {{if .Last}}<a class="btn small ghost" href="/site-backups/{{.Last.ID}}/download">Скачать</a>{{end}}
-        <form method="post" action="/sites/{{.ID}}/toggle">
-          <input type="hidden" name="back" value="/sites">
+        <form method="post" action="/projects/{{.ID}}/run"><button class="btn small" type="submit">Сейчас</button></form>
+        {{if .Last}}<a class="btn small ghost" href="/project-backups/{{.Last.ID}}/download">Скачать</a>{{end}}
+        <form method="post" action="/projects/{{.ID}}/toggle">
+          <input type="hidden" name="back" value="/projects">
           <button class="btn small ghost" type="submit">{{if .Enabled}}Выключить{{else}}Включить{{end}}</button>
         </form>
       </td>

@@ -3,7 +3,6 @@ package web
 import (
 	"fmt"
 	"html/template"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,36 +22,6 @@ type loginData struct {
 	Next string
 }
 
-type backupView struct {
-	ID          int64
-	TargetID    int64
-	TargetName  string
-	Status      string
-	StatusLabel string
-	StatusClass string
-	StartedAt   time.Time
-	FinishedAt  *time.Time
-	SizeBytes   int64
-	DurationMS  int64
-	ErrorText   string
-	Log         string
-	SHA256      string
-	Path        string
-	FileName    string
-}
-
-type targetRow struct {
-	ID        int64
-	Name      string
-	Type      string
-	TypeLabel string
-	Schedule  string
-	Enabled   bool
-	NextRun   *time.Time
-	Last      *backupView
-	Running   bool
-}
-
 type dbInfo struct {
 	Host        string
 	Port        int
@@ -62,85 +31,7 @@ type dbInfo struct {
 	PasswordSet bool
 }
 
-type targetInfo struct {
-	ID            int64
-	Name          string
-	Type          string
-	TypeLabel     string
-	Schedule      string
-	Enabled       bool
-	RetentionKeep int
-	CreatedAt     time.Time
-	NextRun       *time.Time
-	Dir           *store.DirConfig
-	DB            *dbInfo
-	Last          *backupView
-}
-
-type targetForm struct {
-	Name          string
-	Type          string
-	Schedule      string
-	RetentionKeep int
-	Enabled       bool
-	DirPath       string
-	DirExclude    string
-	DBHost        string
-	DBPort        string
-	DBName        string
-	DBUser        string
-	DBSSLMode     string
-	PasswordSet   bool
-}
-
-type dashboardData struct {
-	viewBase
-	Targets    []targetRow
-	HasRunning bool
-}
-
-type formData struct {
-	viewBase
-	IsNew       bool
-	Action      string
-	TargetID    int64
-	Form        targetForm
-	SourceRoots []string
-	PasswordSet bool
-	NextRuns    []time.Time
-}
-
-type detailData struct {
-	viewBase
-	Target        targetInfo
-	Backups       []backupView
-	HasRunning    bool
-	ScheduleError string
-}
-
-type backupsData struct {
-	viewBase
-	Backups      []backupView
-	SiteRuns     []siteBackupView
-	Targets      []targetRow
-	Sites        []siteRow
-	Selected     int64
-	SelectedSite int64
-	HasRunning   bool
-}
-
-type settingsData struct {
-	viewBase
-	Settings      map[string]string
-	BackupDir     string
-	DataDir       string
-	SourceRoots   []string
-	MaxConcurrent int
-	JobTimeout    string
-	AdminUser     string
-}
-
-type siteFileView struct {
+type projectFileView struct {
 	Role      string
 	RoleLabel string
 	Name      string
@@ -148,10 +39,10 @@ type siteFileView struct {
 	SHA256    string
 }
 
-type siteBackupView struct {
+type projectBackupView struct {
 	ID             int64
-	SiteID         int64
-	SiteName       string
+	ProjectID      int64
+	ProjectName    string
 	Status         string
 	StatusLabel    string
 	StatusClass    string
@@ -163,18 +54,18 @@ type siteBackupView struct {
 	Log            string
 	RunDir         string
 	ManifestSHA256 string
-	Files          []siteFileView
+	Files          []projectFileView
 	HasDir         bool
 	HasDB          bool
 }
 
-type siteRow struct {
+type projectRow struct {
 	ID          int64
 	Name        string
 	Schedule    string
 	Enabled     bool
 	NextRun     *time.Time
-	Last        *siteBackupView
+	Last        *projectBackupView
 	Running     bool
 	DirPath     string
 	DBType      string
@@ -182,7 +73,7 @@ type siteRow struct {
 	DB          *dbInfo
 }
 
-type siteInfo struct {
+type projectInfo struct {
 	ID            int64
 	Name          string
 	Schedule      string
@@ -194,10 +85,10 @@ type siteInfo struct {
 	DBType        string
 	DBTypeLabel   string
 	DB            *dbInfo
-	Last          *siteBackupView
+	Last          *projectBackupView
 }
 
-type siteForm struct {
+type projectForm struct {
 	Name          string
 	Schedule      string
 	RetentionKeep int
@@ -215,111 +106,54 @@ type siteForm struct {
 	PasswordSet   bool
 }
 
-type sitesData struct {
+type projectsData struct {
 	viewBase
-	Sites      []siteRow
+	Projects   []projectRow
 	HasRunning bool
 }
 
-type siteFormData struct {
+type projectFormData struct {
 	viewBase
 	IsNew       bool
 	Action      string
-	SiteID      int64
-	Form        siteForm
+	ProjectID   int64
+	Form        projectForm
 	SourceRoots []string
 	NextRuns    []time.Time
 }
 
-type siteDetailData struct {
+type projectDetailData struct {
 	viewBase
-	Site          siteInfo
-	Backups       []siteBackupView
+	Project       projectInfo
+	Backups       []projectBackupView
 	HasRunning    bool
 	ScheduleError string
 }
 
-func (w *Web) backupView(b *store.Backup) backupView {
-	v := backupView{
-		ID:          b.ID,
-		TargetID:    b.TargetID,
-		TargetName:  b.TargetName,
-		Status:      b.Status,
-		StatusLabel: statusLabel(b.Status),
-		StatusClass: statusClass(b.Status),
-		StartedAt:   b.StartedAt.In(w.cfg.Location),
-		SizeBytes:   b.SizeBytes,
-		DurationMS:  b.DurationMS,
-		ErrorText:   b.Error,
-		Log:         b.LogTail,
-		SHA256:      b.SHA256,
-		Path:        b.Path,
-	}
-	if b.FinishedAt != nil {
-		t := b.FinishedAt.In(w.cfg.Location)
-		v.FinishedAt = &t
-	}
-	if b.Path != "" {
-		v.FileName = filepath.Base(b.Path)
-	}
-	return v
+type backupsData struct {
+	viewBase
+	ProjectRuns []projectBackupView
+	Projects    []projectRow
+	Selected    int64
+	HasRunning  bool
 }
 
-func (w *Web) targetRow(t *store.Target, last *store.Backup, running bool) targetRow {
-	row := targetRow{
-		ID:        t.ID,
-		Name:      t.Name,
-		Type:      t.Type,
-		TypeLabel: typeLabel(t.Type),
-		Schedule:  t.Schedule,
-		Enabled:   t.Enabled,
-		NextRun:   w.sched.NextRun(t.ID),
-		Running:   running,
-	}
-	if last != nil {
-		v := w.backupView(last)
-		row.Last = &v
-	}
-	return row
+type settingsData struct {
+	viewBase
+	Settings      map[string]string
+	BackupDir     string
+	DataDir       string
+	SourceRoots   []string
+	MaxConcurrent int
+	JobTimeout    string
+	AdminUser     string
 }
 
-func (w *Web) targetInfo(t *store.Target) targetInfo {
-	info := targetInfo{
-		ID:            t.ID,
-		Name:          t.Name,
-		Type:          t.Type,
-		TypeLabel:     typeLabel(t.Type),
-		Schedule:      t.Schedule,
-		Enabled:       t.Enabled,
-		RetentionKeep: t.RetentionKeep,
-		CreatedAt:     t.CreatedAt.In(w.cfg.Location),
-		NextRun:       w.sched.NextRun(t.ID),
-	}
-	switch t.Type {
-	case store.TypeDir:
-		if cfg, err := t.DirConfig(); err == nil {
-			info.Dir = &cfg
-		}
-	case store.TypePostgres, store.TypeMySQL:
-		if cfg, err := t.DBConfig(); err == nil {
-			info.DB = &dbInfo{
-				Host:        cfg.Host,
-				Port:        cfg.Port,
-				Database:    cfg.Database,
-				User:        cfg.User,
-				SSLMode:     cfg.SSLMode,
-				PasswordSet: cfg.Password != "",
-			}
-		}
-	}
-	return info
-}
-
-func (w *Web) siteBackupView(b *store.SiteBackup, files []*store.SiteBackupFile) siteBackupView {
-	v := siteBackupView{
+func (w *Web) projectBackupView(b *store.ProjectBackup, files []*store.ProjectBackupFile) projectBackupView {
+	v := projectBackupView{
 		ID:             b.ID,
-		SiteID:         b.SiteID,
-		SiteName:       b.SiteName,
+		ProjectID:      b.ProjectID,
+		ProjectName:    b.ProjectName,
 		Status:         b.Status,
 		StatusLabel:    statusLabel(b.Status),
 		StatusClass:    statusClass(b.Status),
@@ -336,7 +170,7 @@ func (w *Web) siteBackupView(b *store.SiteBackup, files []*store.SiteBackupFile)
 		v.FinishedAt = &t
 	}
 	for _, f := range files {
-		v.Files = append(v.Files, siteFileView{
+		v.Files = append(v.Files, projectFileView{
 			Role:      f.Role,
 			RoleLabel: roleLabel(f.Role),
 			Name:      f.Name,
@@ -353,21 +187,21 @@ func (w *Web) siteBackupView(b *store.SiteBackup, files []*store.SiteBackupFile)
 	return v
 }
 
-func (w *Web) siteRow(site *store.Site, last *store.SiteBackup, running bool) siteRow {
-	row := siteRow{
-		ID:          site.ID,
-		Name:        site.Name,
-		Schedule:    site.Schedule,
-		Enabled:     site.Enabled,
-		NextRun:     w.sched.NextRunSite(site.ID),
+func (w *Web) projectRow(project *store.Project, last *store.ProjectBackup, running bool) projectRow {
+	row := projectRow{
+		ID:          project.ID,
+		Name:        project.Name,
+		Schedule:    project.Schedule,
+		Enabled:     project.Enabled,
+		NextRun:     w.sched.NextRun(project.ID),
 		Running:     running,
-		DBType:      site.DBType,
-		DBTypeLabel: typeLabel(site.DBType),
+		DBType:      project.DBType,
+		DBTypeLabel: typeLabel(project.DBType),
 	}
-	if dir, err := site.Dir(); err == nil && dir != nil {
+	if dir, err := project.Dir(); err == nil && dir != nil {
 		row.DirPath = dir.Path
 	}
-	if db, err := site.DB(); err == nil && db != nil {
+	if db, err := project.DB(); err == nil && db != nil {
 		row.DB = &dbInfo{
 			Host:        db.Host,
 			Port:        db.Port,
@@ -378,28 +212,28 @@ func (w *Web) siteRow(site *store.Site, last *store.SiteBackup, running bool) si
 		}
 	}
 	if last != nil {
-		v := w.siteBackupView(last, nil)
+		v := w.projectBackupView(last, nil)
 		row.Last = &v
 	}
 	return row
 }
 
-func (w *Web) siteInfo(site *store.Site, last *store.SiteBackup) siteInfo {
-	info := siteInfo{
-		ID:            site.ID,
-		Name:          site.Name,
-		Schedule:      site.Schedule,
-		Enabled:       site.Enabled,
-		RetentionKeep: site.RetentionKeep,
-		CreatedAt:     site.CreatedAt.In(w.cfg.Location),
-		NextRun:       w.sched.NextRunSite(site.ID),
-		DBType:        site.DBType,
-		DBTypeLabel:   typeLabel(site.DBType),
+func (w *Web) projectInfo(project *store.Project, last *store.ProjectBackup) projectInfo {
+	info := projectInfo{
+		ID:            project.ID,
+		Name:          project.Name,
+		Schedule:      project.Schedule,
+		Enabled:       project.Enabled,
+		RetentionKeep: project.RetentionKeep,
+		CreatedAt:     project.CreatedAt.In(w.cfg.Location),
+		NextRun:       w.sched.NextRun(project.ID),
+		DBType:        project.DBType,
+		DBTypeLabel:   typeLabel(project.DBType),
 	}
-	if dir, err := site.Dir(); err == nil {
+	if dir, err := project.Dir(); err == nil {
 		info.Dir = dir
 	}
-	if db, err := site.DB(); err == nil && db != nil {
+	if db, err := project.DB(); err == nil && db != nil {
 		info.DB = &dbInfo{
 			Host:        db.Host,
 			Port:        db.Port,
@@ -410,7 +244,7 @@ func (w *Web) siteInfo(site *store.Site, last *store.SiteBackup) siteInfo {
 		}
 	}
 	if last != nil {
-		v := w.siteBackupView(last, nil)
+		v := w.projectBackupView(last, nil)
 		info.Last = &v
 	}
 	return info

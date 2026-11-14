@@ -22,9 +22,16 @@ type Result struct {
 	SHA256    string
 }
 
-// Run performs a backup of the given target into destDir. The archive name is
+// Spec is a transport-agnostic description of one backup part.
+type Spec struct {
+	Type string
+	Dir  store.DirConfig
+	DB   store.DBConfig
+}
+
+// Run performs a backup of the given spec into destDir. The archive name is
 // derived from fileBase plus a type-specific extension.
-func Run(ctx context.Context, t *store.Target, destDir, fileBase string, logs *LogBuffer) (Result, error) {
+func Run(ctx context.Context, spec Spec, destDir, fileBase string, logs *LogBuffer) (Result, error) {
 	if err := os.MkdirAll(destDir, 0o750); err != nil {
 		return Result{}, fmt.Errorf("создание каталога бэкапов: %w", err)
 	}
@@ -33,15 +40,15 @@ func Run(ctx context.Context, t *store.Target, destDir, fileBase string, logs *L
 		res Result
 		err error
 	)
-	switch t.Type {
+	switch spec.Type {
 	case store.TypeDir:
-		res, err = runDir(ctx, t, filepath.Join(destDir, fileBase+".tar.zst"), logs)
+		res, err = runDir(ctx, spec.Dir, filepath.Join(destDir, fileBase+".tar.zst"), logs)
 	case store.TypePostgres:
-		res, err = runPostgres(ctx, t, filepath.Join(destDir, fileBase+".dump"), logs)
+		res, err = runPostgres(ctx, spec.DB, filepath.Join(destDir, fileBase+".dump"), logs)
 	case store.TypeMySQL:
-		res, err = runMySQL(ctx, t, filepath.Join(destDir, fileBase+".sql.zst"), logs)
+		res, err = runMySQL(ctx, spec.DB, filepath.Join(destDir, fileBase+".sql.zst"), logs)
 	default:
-		return Result{}, fmt.Errorf("неизвестный тип цели: %q", t.Type)
+		return Result{}, fmt.Errorf("неизвестный тип бэкапа: %q", spec.Type)
 	}
 	if err != nil {
 		return Result{}, err
@@ -49,34 +56,30 @@ func Run(ctx context.Context, t *store.Target, destDir, fileBase string, logs *L
 	return res, nil
 }
 
-// Test checks that the target is reachable and readable.
-func Test(ctx context.Context, t *store.Target) error {
+// Test checks that the spec is reachable and readable.
+func Test(ctx context.Context, spec Spec) error {
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 
-	switch t.Type {
+	switch spec.Type {
 	case store.TypeDir:
-		cfg, err := t.DirConfig()
+		info, err := os.Stat(spec.Dir.Path)
 		if err != nil {
-			return err
-		}
-		info, err := os.Stat(cfg.Path)
-		if err != nil {
-			return fmt.Errorf("каталог %s: %w", cfg.Path, err)
+			return fmt.Errorf("каталог %s: %w", spec.Dir.Path, err)
 		}
 		if !info.IsDir() {
-			return fmt.Errorf("%s не является каталогом", cfg.Path)
+			return fmt.Errorf("%s не является каталогом", spec.Dir.Path)
 		}
-		if _, err := os.ReadDir(cfg.Path); err != nil {
-			return fmt.Errorf("каталог %s недоступен для чтения: %w", cfg.Path, err)
+		if _, err := os.ReadDir(spec.Dir.Path); err != nil {
+			return fmt.Errorf("каталог %s недоступен для чтения: %w", spec.Dir.Path, err)
 		}
 		return nil
 	case store.TypePostgres:
-		return testPostgres(ctx, t)
+		return testPostgres(ctx, spec.DB)
 	case store.TypeMySQL:
-		return testMySQL(ctx, t)
+		return testMySQL(ctx, spec.DB)
 	default:
-		return fmt.Errorf("неизвестный тип цели: %q", t.Type)
+		return fmt.Errorf("неизвестный тип бэкапа: %q", spec.Type)
 	}
 }
 

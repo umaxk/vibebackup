@@ -18,32 +18,32 @@ import (
 
 // ---------------------------------------------------------------- pages
 
-func (w *Web) sitesPage(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectsPage(resp http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	sites, err := w.st.ListSites(ctx)
+	projects, err := w.st.ListProjects(ctx)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	d := sitesData{viewBase: w.base(r, "Сайты")}
-	running := w.svc.RunningSites()
-	for _, site := range sites {
-		last, err := w.st.LastSiteBackup(ctx, site.ID)
+	d := projectsData{viewBase: w.base(r, "Проекты")}
+	running := w.svc.RunningProjects()
+	for _, project := range projects {
+		last, err := w.st.LastProjectBackup(ctx, project.ID)
 		if err != nil {
-			w.log.Warn("не удалось получить последний прогон сайта", "site_id", site.ID, "err", err)
+			w.log.Warn("не удалось получить последний прогон проекта", "project_id", project.ID, "err", err)
 		}
-		row := w.siteRow(site, last, running[site.ID])
+		row := w.projectRow(project, last, running[project.ID])
 		if row.Running {
 			d.HasRunning = true
 		}
-		d.Sites = append(d.Sites, row)
+		d.Projects = append(d.Projects, row)
 	}
-	w.render(resp, "sites", d)
+	w.render(resp, "projects", d)
 }
 
-func (w *Web) siteNew(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectNew(resp http.ResponseWriter, r *http.Request) {
 	retention, _ := strconv.Atoi(w.svc.Settings(r.Context())["default_retention"])
-	f := siteForm{
+	f := projectForm{
 		Schedule:      "0 3 * * *",
 		RetentionKeep: retention,
 		Enabled:       true,
@@ -55,118 +55,118 @@ func (w *Web) siteNew(resp http.ResponseWriter, r *http.Request) {
 	if roots := w.svc.ListSources(r.Context()); len(roots) > 0 {
 		f.DirPath = roots[0]
 	}
-	w.render(resp, "site_form", w.siteFormData(r, "Новый сайт", true, 0, f))
+	w.render(resp, "project_form", w.projectFormData(r, "Новый проект", true, 0, f))
 }
 
-func (w *Web) siteEdit(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectEdit(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
-	site, err := w.st.GetSite(r.Context(), id)
+	project, err := w.st.GetProject(r.Context(), id)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	w.render(resp, "site_form", w.siteFormData(r, "Изменить сайт", false, id, siteFormFrom(site)))
+	w.render(resp, "project_form", w.projectFormData(r, "Изменить проект", false, id, projectFormFrom(project)))
 }
 
-func (w *Web) siteCreate(resp http.ResponseWriter, r *http.Request) {
-	in, f := parseSiteForm(r)
-	site, err := w.svc.CreateSite(r.Context(), in)
+func (w *Web) projectCreate(resp http.ResponseWriter, r *http.Request) {
+	in, f := parseProjectForm(r)
+	project, err := w.svc.CreateProject(r.Context(), in)
 	if err != nil {
-		d := w.siteFormData(r, "Новый сайт", true, 0, f)
+		d := w.projectFormData(r, "Новый проект", true, 0, f)
 		d.Error = err.Error()
 		resp.WriteHeader(http.StatusBadRequest)
-		w.render(resp, "site_form", d)
+		w.render(resp, "project_form", d)
 		return
 	}
-	if err := w.sched.SyncSite(site); err != nil {
-		w.log.Warn("расписание сайта не применено", "site_id", site.ID, "err", err)
+	if err := w.sched.Sync(project); err != nil {
+		w.log.Warn("расписание проекта не применено", "project_id", project.ID, "err", err)
 	}
-	redirectWithFlash(resp, r, fmt.Sprintf("/sites/%d", site.ID), "сайт добавлен")
+	redirectWithFlash(resp, r, fmt.Sprintf("/projects/%d", project.ID), "проект добавлен")
 }
 
-func (w *Web) siteUpdate(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectUpdate(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
-	in, f := parseSiteForm(r)
-	site, err := w.svc.UpdateSite(r.Context(), id, in)
+	in, f := parseProjectForm(r)
+	project, err := w.svc.UpdateProject(r.Context(), id, in)
 	if err != nil {
-		d := w.siteFormData(r, "Изменить сайт", false, id, f)
+		d := w.projectFormData(r, "Изменить проект", false, id, f)
 		d.Error = err.Error()
 		resp.WriteHeader(http.StatusBadRequest)
-		w.render(resp, "site_form", d)
+		w.render(resp, "project_form", d)
 		return
 	}
-	if err := w.sched.SyncSite(site); err != nil {
-		w.log.Warn("расписание сайта не применено", "site_id", site.ID, "err", err)
+	if err := w.sched.Sync(project); err != nil {
+		w.log.Warn("расписание проекта не применено", "project_id", project.ID, "err", err)
 	}
-	redirectWithFlash(resp, r, fmt.Sprintf("/sites/%d", site.ID), "изменения сохранены")
+	redirectWithFlash(resp, r, fmt.Sprintf("/projects/%d", project.ID), "изменения сохранены")
 }
 
-func (w *Web) siteDelete(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectDelete(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
 	removeFiles := r.PostFormValue("delete_files") == "1"
-	if err := w.svc.DeleteSite(r.Context(), id, removeFiles); err != nil {
-		redirectWithError(resp, r, fmt.Sprintf("/sites/%d", id), err.Error())
+	if err := w.svc.DeleteProject(r.Context(), id, removeFiles); err != nil {
+		redirectWithError(resp, r, fmt.Sprintf("/projects/%d", id), err.Error())
 		return
 	}
-	w.sched.RemoveSite(id)
-	redirectWithFlash(resp, r, "/sites", "сайт удалён")
+	w.sched.Remove(id)
+	redirectWithFlash(resp, r, "/projects", "проект удалён")
 }
 
-func (w *Web) siteRun(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectRun(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
-	back := fmt.Sprintf("/sites/%d", id)
-	if _, err := w.svc.StartSiteBackup(r.Context(), id, "manual"); err != nil {
+	back := fmt.Sprintf("/projects/%d", id)
+	if _, err := w.svc.StartProjectBackup(r.Context(), id, "manual"); err != nil {
 		redirectWithError(resp, r, back, err.Error())
 		return
 	}
-	redirectWithFlash(resp, r, back, "прогон сайта запущен")
+	redirectWithFlash(resp, r, back, "прогон проекта запущен")
 }
 
-func (w *Web) siteToggle(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectToggle(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()
-	site, err := w.st.GetSite(ctx, id)
+	project, err := w.st.GetProject(ctx, id)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	site.Enabled = !site.Enabled
-	if err := w.st.UpdateSite(ctx, site); err != nil {
+	project.Enabled = !project.Enabled
+	if err := w.st.UpdateProject(ctx, project); err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	if err := w.sched.SyncSite(site); err != nil {
-		w.log.Warn("расписание сайта не применено", "site_id", site.ID, "err", err)
+	if err := w.sched.Sync(project); err != nil {
+		w.log.Warn("расписание проекта не применено", "project_id", project.ID, "err", err)
 	}
-	back := safeBack(r.PostFormValue("back"), "/sites")
-	msg := "сайт выключен"
-	if site.Enabled {
-		msg = "сайт включён"
+	back := safeBack(r.PostFormValue("back"), "/projects")
+	msg := "проект выключен"
+	if project.Enabled {
+		msg = "проект включён"
 	}
 	redirectWithFlash(resp, r, back, msg)
 }
 
-func (w *Web) siteTest(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectTest(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeJSONError(resp, http.StatusBadRequest, err.Error())
@@ -175,74 +175,74 @@ func (w *Web) siteTest(resp http.ResponseWriter, r *http.Request) {
 	ctx, cancel := contextWithTimeout(r, 40*time.Second)
 	defer cancel()
 
-	res := w.svc.TestStoredSite(ctx, id)
-	back := fmt.Sprintf("/sites/%d", id)
+	res := w.svc.TestStoredProject(ctx, id)
+	back := fmt.Sprintf("/projects/%d", id)
 	if res.OK {
-		redirectWithFlash(resp, r, back, siteTestSummary(res))
+		redirectWithFlash(resp, r, back, projectTestSummary(res))
 		return
 	}
-	redirectWithError(resp, r, back, siteTestSummary(res))
+	redirectWithError(resp, r, back, projectTestSummary(res))
 }
 
-func (w *Web) siteDetail(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectDetail(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()
-	site, err := w.st.GetSite(ctx, id)
+	project, err := w.st.GetProject(ctx, id)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	runs, err := w.st.ListSiteBackups(ctx, id, 200)
+	runs, err := w.st.ListProjectBackups(ctx, id, 200)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	last, err := w.st.LastSiteBackup(ctx, id)
+	last, err := w.st.LastProjectBackup(ctx, id)
 	if err != nil {
-		w.log.Warn("не удалось получить последний прогон сайта", "site_id", id, "err", err)
+		w.log.Warn("не удалось получить последний прогон проекта", "project_id", id, "err", err)
 	}
 
-	d := siteDetailData{
-		viewBase:   w.base(r, site.Name),
-		Site:       w.siteInfo(site, last),
-		HasRunning: w.svc.IsSiteRunning(id),
+	d := projectDetailData{
+		viewBase:   w.base(r, project.Name),
+		Project:    w.projectInfo(project, last),
+		HasRunning: w.svc.IsProjectRunning(id),
 	}
-	if err := w.sched.ValidateSchedule(site.Schedule); err != nil {
+	if err := w.sched.ValidateSchedule(project.Schedule); err != nil {
 		d.ScheduleError = err.Error()
 	}
 	for _, run := range runs {
-		files, err := w.st.ListSiteBackupFiles(ctx, run.ID)
+		files, err := w.st.ListProjectBackupFiles(ctx, run.ID)
 		if err != nil {
-			w.log.Warn("не удалось получить файлы прогона сайта", "backup_id", run.ID, "err", err)
+			w.log.Warn("не удалось получить файлы прогона проекта", "backup_id", run.ID, "err", err)
 		}
-		v := w.siteBackupView(run, files)
+		v := w.projectBackupView(run, files)
 		if v.Status == store.StatusRunning || v.Status == store.StatusQueued {
 			d.HasRunning = true
 		}
 		d.Backups = append(d.Backups, v)
 	}
-	w.render(resp, "site_detail", d)
+	w.render(resp, "project_detail", d)
 }
 
 // ---------------------------------------------------------------- downloads
 
-func (w *Web) siteBackupDownload(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectBackupDownload(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()
-	b, err := w.st.GetSiteBackup(ctx, id)
+	b, err := w.st.GetProjectBackup(ctx, id)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
 	}
-	files, err := w.st.ListSiteBackupFiles(ctx, id)
+	files, err := w.st.ListProjectBackupFiles(ctx, id)
 	if err != nil {
 		w.fail(resp, r, err)
 		return
@@ -251,7 +251,7 @@ func (w *Web) siteBackupDownload(resp http.ResponseWriter, r *http.Request) {
 	if role := strings.TrimSpace(r.URL.Query().Get("file")); role != "" {
 		for _, f := range files {
 			if f.Role == role {
-				w.serveSiteFile(resp, r, f)
+				w.serveProjectFile(resp, r, f)
 				return
 			}
 		}
@@ -267,7 +267,7 @@ func (w *Web) siteBackupDownload(resp http.ResponseWriter, r *http.Request) {
 		http.Error(resp, "у прогона нет файлов", http.StatusNotFound)
 		return
 	}
-	sortSiteFiles(files)
+	sortProjectFiles(files)
 	for _, f := range files {
 		if _, err := os.Stat(f.Path); err != nil {
 			w.log.Error("файл прогона отсутствует", "path", f.Path, "err", err)
@@ -276,7 +276,7 @@ func (w *Web) siteBackupDownload(resp http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	name := fmt.Sprintf("site-%d-backup-%d.tar", b.SiteID, b.ID)
+	name := fmt.Sprintf("project-%d-backup-%d.tar", b.ProjectID, b.ID)
 	resp.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	resp.Header().Set("Content-Type", "application/x-tar")
 
@@ -315,7 +315,7 @@ func (w *Web) siteBackupDownload(resp http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (w *Web) serveSiteFile(resp http.ResponseWriter, r *http.Request, f *store.SiteBackupFile) {
+func (w *Web) serveProjectFile(resp http.ResponseWriter, r *http.Request, f *store.ProjectBackupFile) {
 	fh, err := os.Open(f.Path)
 	if err != nil {
 		w.log.Error("не удалось открыть файл прогона", "path", f.Path, "err", err)
@@ -333,8 +333,8 @@ func (w *Web) serveSiteFile(resp http.ResponseWriter, r *http.Request, f *store.
 	http.ServeContent(resp, r, filepath.Base(f.Name), fi.ModTime(), fh)
 }
 
-// sortSiteFiles puts the manifest first, then the directory and the database.
-func sortSiteFiles(files []*store.SiteBackupFile) {
+// sortProjectFiles puts the manifest first, then the directory and the database.
+func sortProjectFiles(files []*store.ProjectBackupFile) {
 	rank := func(role string) int {
 		switch role {
 		case "manifest":
@@ -350,33 +350,33 @@ func sortSiteFiles(files []*store.SiteBackupFile) {
 	sort.SliceStable(files, func(i, j int) bool { return rank(files[i].Role) < rank(files[j].Role) })
 }
 
-func (w *Web) siteBackupDelete(resp http.ResponseWriter, r *http.Request) {
+func (w *Web) projectBackupDelete(resp http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		http.Error(resp, err.Error(), http.StatusBadRequest)
 		return
 	}
 	back := safeBack(r.PostFormValue("back"), "/backups")
-	if err := w.svc.DeleteSiteBackup(r.Context(), id, true); err != nil {
+	if err := w.svc.DeleteProjectBackup(r.Context(), id, true); err != nil {
 		redirectWithError(resp, r, back, err.Error())
 		return
 	}
-	redirectWithFlash(resp, r, back, "прогон сайта удалён")
+	redirectWithFlash(resp, r, back, "прогон проекта удалён")
 }
 
 // ---------------------------------------------------------------- forms
 
-func (w *Web) siteFormData(r *http.Request, title string, isNew bool, id int64, f siteForm) siteFormData {
-	d := siteFormData{
-		viewBase: w.base(r, title),
-		IsNew:    isNew,
-		SiteID:   id,
-		Form:     f,
+func (w *Web) projectFormData(r *http.Request, title string, isNew bool, id int64, f projectForm) projectFormData {
+	d := projectFormData{
+		viewBase:  w.base(r, title),
+		IsNew:     isNew,
+		ProjectID: id,
+		Form:      f,
 	}
 	if isNew {
-		d.Action = "/sites"
+		d.Action = "/projects"
 	} else {
-		d.Action = fmt.Sprintf("/sites/%d", id)
+		d.Action = fmt.Sprintf("/projects/%d", id)
 	}
 	d.SourceRoots = w.svc.ListSources(r.Context())
 	if f.Schedule != "" {
@@ -387,20 +387,20 @@ func (w *Web) siteFormData(r *http.Request, title string, isNew bool, id int64, 
 	return d
 }
 
-func siteFormFrom(site *store.Site) siteForm {
-	f := siteForm{
-		Name:          site.Name,
-		Schedule:      site.Schedule,
-		RetentionKeep: site.RetentionKeep,
-		Enabled:       site.Enabled,
-		DBType:        site.DBType,
+func projectFormFrom(project *store.Project) projectForm {
+	f := projectForm{
+		Name:          project.Name,
+		Schedule:      project.Schedule,
+		RetentionKeep: project.RetentionKeep,
+		Enabled:       project.Enabled,
+		DBType:        project.DBType,
 	}
-	if cfg, err := site.Dir(); err == nil && cfg != nil {
+	if cfg, err := project.Dir(); err == nil && cfg != nil {
 		f.DirEnabled = true
 		f.DirPath = cfg.Path
 		f.DirExclude = strings.Join(cfg.Exclude, "\n")
 	}
-	if cfg, err := site.DB(); err == nil && cfg != nil {
+	if cfg, err := project.DB(); err == nil && cfg != nil {
 		f.DBEnabled = true
 		f.DBHost = cfg.Host
 		f.DBPort = strconv.Itoa(cfg.Port)
@@ -425,8 +425,8 @@ func siteFormFrom(site *store.Site) siteForm {
 	return f
 }
 
-func parseSiteForm(r *http.Request) (service.SiteInput, siteForm) {
-	f := siteForm{
+func parseProjectForm(r *http.Request) (service.ProjectInput, projectForm) {
+	f := projectForm{
 		Name:          strings.TrimSpace(r.PostFormValue("name")),
 		Schedule:      strings.TrimSpace(r.PostFormValue("schedule")),
 		RetentionKeep: atoiDefault(r.PostFormValue("retention_keep"), 0),
@@ -446,7 +446,7 @@ func parseSiteForm(r *http.Request) (service.SiteInput, siteForm) {
 	if f.DBType == "" {
 		f.DBType = store.TypePostgres
 	}
-	in := service.SiteInput{
+	in := service.ProjectInput{
 		Name:          f.Name,
 		Schedule:      f.Schedule,
 		Enabled:       f.Enabled,
@@ -466,7 +466,7 @@ func parseSiteForm(r *http.Request) (service.SiteInput, siteForm) {
 	return in, f
 }
 
-func siteTestSummary(res service.SiteTestResult) string {
+func projectTestSummary(res service.ProjectTestResult) string {
 	var parts []string
 	if res.Dir != nil {
 		parts = append(parts, "каталог: "+partSummary(*res.Dir))

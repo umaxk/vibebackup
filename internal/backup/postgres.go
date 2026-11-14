@@ -32,11 +32,7 @@ func pgEnv(cfg store.DBConfig) []string {
 	)
 }
 
-func runPostgres(ctx context.Context, t *store.Target, destFile string, logs *LogBuffer) (Result, error) {
-	cfg, err := t.DBConfig()
-	if err != nil {
-		return Result{}, err
-	}
+func runPostgres(ctx context.Context, cfg store.DBConfig, destFile string, logs *LogBuffer) (Result, error) {
 	// Custom format is already compressed and restores with pg_restore.
 	args := []string{
 		"--format=custom",
@@ -51,11 +47,7 @@ func runPostgres(ctx context.Context, t *store.Target, destFile string, logs *Lo
 	return streamCommand(ctx, "pg_dump", args, pgEnv(cfg), destFile, logs)
 }
 
-func testPostgres(ctx context.Context, t *store.Target) error {
-	cfg, err := t.DBConfig()
-	if err != nil {
-		return err
-	}
+func testPostgres(ctx context.Context, cfg store.DBConfig) error {
 	bin, err := exec.LookPath("psql")
 	if err != nil {
 		return fmt.Errorf("клиент psql не найден в контейнере: %w", err)

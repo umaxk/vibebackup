@@ -8,11 +8,11 @@
 - **Каталоги** — `tar` + `zstd`, с масками исключений и сохранением прав/владельцев/симлинков.
 - **PostgreSQL** — `pg_dump --format=custom` (нативно сжатый дамп, восстанавливается `pg_restore`).
 - **MySQL / MariaDB** — `mysqldump --single-transaction` + `zstd`.
-- **Сайты** — каталог и база данных в одном прогоне: общий статус, история, retention и архив.
-- **Расписание** — cron (5 полей), пресеты в UI, ручной запуск, включение/выключение цели.
+- **Проекты** — каталог и/или база данных в одном прогоне: общий статус, история, retention и архив.
+- **Расписание** — cron (5 полей), пресеты в UI, ручной запуск, включение/выключение проекта.
 - **История** — статус, размер, длительность, sha256, лог ошибки, скачивание, удаление.
-- **Retention** — хранить N последних успешных бэкапов на цель или сайт.
-- **Надёжность** — один прогон на цель, лимит параллельных задач, таймаут, проверка свободного места,
+- **Retention** — хранить N последних успешных бэкапов на проект.
+- **Надёжность** — один прогон на проект, лимит параллельных задач, таймаут, проверка свободного места,
   корректная остановка по SIGTERM, пометка прерванных прогонов после рестарта.
 - **Интерфейсы** — веб-панель и REST API с авторизацией (cookie-сессия, HTTP Basic или API-ключ).
 - **Режим только-API** — `VBC_UI_ENABLED=false` полностью отключает веб-интерфейс.
@@ -86,9 +86,9 @@ openssl rand -hex 32
 После рестарта пропущенный запуск выполняется один раз, если попал в окно `VBC_GRACE_MINUTES`.
 Хранить `0` бэкапов — использовать `default_retention` из настроек; `0` там — не удалять автоматически.
 
-## Сайты: каталог и база вместе
+## Проекты: каталог и база вместе
 
-Сайт — отдельная сущность для случая «файлы сайта + его база». У сайта одно расписание,
+Проект — отдельная сущность для случая «файлы проекта + его база». У проекта одно расписание,
 один retention, одна история прогонов и один набор файлов на прогон.
 
 Состав (нужна хотя бы одна часть):
@@ -97,7 +97,7 @@ openssl rand -hex 32
 - **база данных** — PostgreSQL **или** MySQL/MariaDB: хост, порт, база, пользователь, пароль,
   `sslmode` (только PostgreSQL).
 
-В форме сайта блоки включаются галочками. Порт по умолчанию подставляется по типу базы
+В форме проекта блоки включаются галочками. Порт по умолчанию подставляется по типу базы
 (`5432` или `3306`), поле `sslmode` показывается только для PostgreSQL.
 
 ### Проверка подключения
@@ -109,8 +109,8 @@ openssl rand -hex 32
   поэтому различаются три случая: сервер недоступен, неверные учётные данные,
   база не найдена или нет прав.
 
-Тот же результат доступен в API: `POST /api/sites/{id}/test` (без тела — сохранённый сайт,
-с телом — значения из формы) и `POST /api/sites/test` для несохранённого сайта.
+Тот же результат доступен в API: `POST /api/projects/{id}/test` (без тела — сохранённый проект,
+с телом — значения из формы) и `POST /api/projects/test` для несохранённого проекта.
 Ответ содержит независимые блоки `dir` и `db` с `ok`, `info` или `error`.
 
 ### Прогон
@@ -120,28 +120,35 @@ openssl rand -hex 32
 2. Части независимы: если упала база, архив каталога всё равно создаётся и остаётся доступным.
    Итоговый статус прогона — `failed`, а в ошибке перечислены упавшие части.
 3. `manifest.json` пишется всегда: список файлов с ролями, размерами и `sha256`, а также ошибки частей.
-4. Один прогон на сайт, общий лимит `VBC_MAX_CONCURRENT`, таймаут `VBC_JOB_TIMEOUT` на весь прогон.
-5. Retention хранит N последних **успешных** прогонов сайта; `0` — значение по умолчанию из настроек.
+4. Один прогон на проект, общий лимит `VBC_MAX_CONCURRENT`, таймаут `VBC_JOB_TIMEOUT` на весь прогон.
+5. Retention хранит N последних **успешных** прогонов проекта; `0` — значение по умолчанию из настроек.
 
 Полностью согласованной пары «файлы + база» без снапшота ФС или остановки приложения не бывает:
 `tar` читает живой каталог, а `pg_dump`/`mysqldump` фиксируют состояние на момент старта.
 Для строгих случаев используйте окно обслуживания или снапшот ФС.
 
+## Обновление с прежних версий
+
+При старте сервис выполняет две одноразовые миграции:
+
+1. Таблицы прежней сущности «сайты» переименовываются: `sites` → `projects`,
+   `site_backups` → `project_backups`, `site_backup_files` → `project_backup_files`.
+   Данные сохраняются полностью.
+2. Сущность «цели» удаляется безвозвратно: строки бэкапов, файлы и каталоги целей внутри
+   `VBC_BACKUP_DIR`, затем таблицы `backups` и `targets`. В настройки записывается маркер
+   `legacy_targets_removed`. Удаляются только пути строго внутри `VBC_BACKUP_DIR`.
+
+Прежние прогоны сайтов остаются на диске в `/backups/sites/...` и доступны в истории;
+новые прогоны пишутся в `/backups/projects/...`.
+
 ## Где лежат бэкапы
 
-```
-/backups/<slug>-<id>/<год>/<месяц>/<slug>-<id>-<YYYYMMDDTHHMMSS>-b<backupID>.tar.zst
-/backups/<slug>-<id>/<год>/<месяц>/<slug>-<id>-<YYYYMMDDTHHMMSS>-b<backupID>.dump      (PostgreSQL)
-/backups/<slug>-<id>/<год>/<месяц>/<slug>-<id>-<YYYYMMDDTHHMMSS>-b<backupID>.sql.zst   (MySQL)
-+ рядом файл .sha256
-```
-
-Прогоны сайтов лежат отдельно, одной папкой на прогон:
+Один прогон проекта — одна папка:
 
 ```
-/backups/sites/<slug>-<id>/<год>/<месяц>/<YYYYMMDDTHHMMSS>-b<backupID>/
+/backups/projects/<slug>-<id>/<год>/<месяц>/<YYYYMMDDTHHMMSS>-b<backupID>/
 ├── manifest.json
-├── files.tar.zst        (если у сайта есть каталог)
+├── files.tar.zst        (если у проекта есть каталог)
 ├── db.dump              (PostgreSQL)
 └── db.sql.zst           (MySQL/MariaDB)
 ```
@@ -150,8 +157,8 @@ openssl rand -hex 32
 
 ```json
 {
-  "site_id": 3,
-  "site_name": "example.com",
+  "project_id": 3,
+  "project_name": "example.com",
   "backup_id": 12,
   "started_at": "2026-11-14T03:00:00Z",
   "finished_at": "2026-11-14T03:00:41Z",
@@ -190,14 +197,14 @@ createdb restore_target && pg_restore -d restore_target backup.dump
 zstd -d backup.sql.zst -c | mysql -h host -u user -p db
 ```
 
-**Сайт (каталог + база)**
+**Проект (каталог + база)**
 
 Скачайте архив прогона из UI («Скачать всё») или через API и распакуйте:
 
 ```bash
-curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12/download"
+curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/project-backups/12/download"
 
-tar -xf site-3-backup-12.tar
+tar -xf project-3-backup-12.tar
 # manifest.json, files.tar.zst, db.dump (или db.sql.zst)
 zstd -d files.tar.zst -c | tar -x -C /restore
 pg_restore -h host -p 5432 -U user -d db --clean --if-exists db.dump
@@ -234,7 +241,7 @@ export VBC_API_KEY=...        # значение из .env
 | `true` | задан | работает | API-ключ, cookie-сессия или Basic |
 | `false` | задан | **отключён** (все UI-адреса → `404`) | **только API-ключ** |
 
-В режиме только-API `/login`, `/api/login`, `/logout`, `/targets/*`, `/backups`, `/settings`
+В режиме только-API `/login`, `/api/login`, `/logout`, `/projects/*`, `/backups`, `/settings`
 и `/static/*` не регистрируются вовсе. Открытыми остаются `/healthz` и `/api/*`;
 Basic и cookie-сессия в этом режиме не действуют. Запуск с `VBC_UI_ENABLED=false`
 без `VBC_API_KEY` завершается ошибкой — иначе сервис был бы недоступен.
@@ -242,85 +249,51 @@ Basic и cookie-сессия в этом режиме не действуют. �
 ### Примеры
 
 ```bash
-# список целей
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/targets"
+# список проектов
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/projects"
 
-# создать цель-каталог
-curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"type":"dir","name":"Фото","schedule":"0 3 * * *","retention_keep":7,
-       "dir":{"path":"/sources/photo","exclude":["*.tmp"]}}' \
-  "$VBC_URL/api/targets"
-
-# создать цель-PostgreSQL
-curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"type":"postgres","name":"app-db","schedule":"0 * * * *",
-       "database":{"host":"postgres","port":5432,"database":"app","user":"backup","password":"secret"}}' \
-  "$VBC_URL/api/targets"
-
-# создать цель-MySQL/MariaDB
-curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"type":"mysql","name":"shop","schedule":"0 4 * * *",
-       "database":{"host":"mariadb","port":3306,"database":"shop","user":"backup","password":"secret"}}' \
-  "$VBC_URL/api/targets"
-
-# проверить подключение (тело необязательно: без него проверяется сохранённая цель)
-curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/targets/1/test"
-
-# запустить бэкап: 202 и id прогона
-curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/targets/1/run"
-
-# список бэкапов цели / всех
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/targets/1/backups?limit=50"
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/backups?target_id=1&limit=50"
-
-# детали одного бэкапа (со логом)
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/backups/12"
-
-# скачать файл; -J подставит имя, Range и докачка поддерживаются
-curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/backups/12/download"
-
-# удалить цель и её файлы (remove_files=false — оставить файлы)
-curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/targets/1?remove_files=true"
-
-# удалить один бэкап (remove_file=false — оставить файл)
-curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/backups/12"
-
-# сайт: каталог + PostgreSQL в одном прогоне
+# проект: каталог + PostgreSQL в одном прогоне
 curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
   -d '{"name":"example.com","schedule":"0 3 * * *","retention_keep":7,
        "dir":{"path":"/sources/example.com","exclude":["node_modules","*.log"]},
        "db_type":"postgres",
        "database":{"host":"postgres","port":5432,"database":"example","user":"backup","password":"secret"}}' \
-  "$VBC_URL/api/sites"
+  "$VBC_URL/api/projects"
 
-# сайт только с MariaDB (каталог не нужен)
+# проект только с MariaDB (каталог не нужен)
 curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
   -d '{"name":"shop-db","schedule":"0 4 * * *","db_type":"mysql",
        "database":{"host":"mariadb","port":3306,"database":"shop","user":"backup","password":"secret"}}' \
-  "$VBC_URL/api/sites"
+  "$VBC_URL/api/projects"
 
-# проверка частей: без тела — сохранённый сайт, с телом — значения из формы
-curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1/test"
+# проект только с каталогом
+curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"Фото","schedule":"0 3 * * *","retention_keep":7,
+       "dir":{"path":"/sources/photo","exclude":["*.tmp"]}}' \
+  "$VBC_URL/api/projects"
+
+# проверка частей: без тела — сохранённый проект, с телом — значения из формы
+curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/projects/1/test"
 
 # запуск прогона: 202, 409 если прогон уже идёт
-curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1/run"
+curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/projects/1/run"
 
-# история прогонов сайта и всех сайтов
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1/backups?limit=50"
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups?site_id=1&limit=50"
+# история прогонов проекта и всех проектов
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/projects/1/backups?limit=50"
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/project-backups?project_id=1&limit=50"
 
 # детали прогона: файлы, manifest_sha256, лог
-curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12"
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/project-backups/12"
 
 # скачать всё одним tar (manifest.json + files.tar.zst + db.dump/db.sql.zst)
-curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12/download"
+curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/project-backups/12/download"
 
 # отдельный файл по роли: dir, db или manifest
-curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12/download?file=db"
+curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/project-backups/12/download?file=db"
 
-# удалить сайт с файлами / один прогон
-curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1?remove_files=true"
-curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12"
+# удалить проект с файлами / один прогон
+curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/projects/1?remove_files=true"
+curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/project-backups/12"
 
 # настройки, предпросмотр cron, состояние системы, доступные каталоги
 curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/settings"
@@ -333,37 +306,32 @@ curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/options/sources"
 ```
 
 Без ключа API отвечает `401` и JSON `{"error":"требуется авторизация"}`.
-`POST /api/targets/{id}/run` возвращает `202` и `{"id":<backup_id>,"status":"queued"}`,
-а `409`, если для цели уже идёт прогон.
+`POST /api/projects/{id}/run` возвращает `202` и `{"id":<backup_id>,"status":"queued"}`,
+а `409`, если для проекта уже идёт прогон.
 
 ### Методы
 
 | Метод | Путь | Описание |
 |---|---|---|
 | POST | `/api/login`, `/api/logout` | сессия (только при `VBC_UI_ENABLED=true`) |
-| GET/POST | `/api/targets` | список / создание цели |
-| GET/PUT/DELETE | `/api/targets/{id}` | чтение / изменение / удаление (`?remove_files=false` — оставить файлы) |
-| POST | `/api/targets/{id}/test` | проверка подключения (тело необязательно) |
-| POST | `/api/targets/{id}/run` | запуск бэкапа, `202` + `id` |
-| GET | `/api/targets/{id}/backups` | история цели |
-| GET | `/api/backups?target_id=&limit=` | все бэкапы |
-| GET/DELETE | `/api/backups/{id}` | детали / удаление (`?remove_file=false`) |
-| GET | `/api/backups/{id}/download` | скачивание файла |
-| GET/POST | `/api/sites` | список / создание сайта |
-| GET/PUT/DELETE | `/api/sites/{id}` | чтение / изменение / удаление (`?remove_files=false`) |
-| POST | `/api/sites/test` | проверка несохранённого сайта: `dir` и `db` раздельно |
-| POST | `/api/sites/{id}/test` | проверка частей (тело необязательно) |
-| POST | `/api/sites/{id}/run` | запуск прогона, `202` + `id` |
-| GET | `/api/sites/{id}/backups` | история прогонов сайта |
-| GET | `/api/site-backups?site_id=&limit=` | прогоны всех сайтов |
-| GET/DELETE | `/api/site-backups/{id}` | детали с файлами / удаление (`?remove_files=false`) |
-| GET | `/api/site-backups/{id}/download?file=` | всё одним tar или один файл (`dir`, `db`, `manifest`) |
-| POST | `/api/test` | проверка не сохранённой конфигурации цели |
+| GET/POST | `/api/projects` | список / создание проекта |
+| GET/PUT/DELETE | `/api/projects/{id}` | чтение / изменение / удаление (`?remove_files=false` — оставить файлы) |
+| POST | `/api/projects/test` | проверка несохранённого проекта: `dir` и `db` раздельно |
+| POST | `/api/projects/{id}/test` | проверка частей (тело необязательно) |
+| POST | `/api/projects/{id}/run` | запуск прогона, `202` + `id` |
+| GET | `/api/projects/{id}/backups` | история прогонов проекта |
+| GET | `/api/project-backups?project_id=&limit=` | прогоны всех проектов |
+| GET/DELETE | `/api/project-backups/{id}` | детали с файлами / удаление (`?remove_files=false`) |
+| GET | `/api/project-backups/{id}/download?file=` | всё одним tar или один файл (`dir`, `db`, `manifest`) |
 | POST | `/api/cron/preview` | ближайшие запуски `{"schedule":"..."}` |
 | GET/PUT | `/api/settings` | политика хранения |
 | GET | `/api/options/sources` | доступные каталоги |
 | GET | `/api/system` | версия, диск, лимиты |
 | GET | `/healthz` | проверка живости, без авторизации |
+
+Алиасы `/api/sites*` и `/api/site-backups*` работают как `/api/projects*` и
+`/api/project-backups*` один релиз; старые адреса `/sites*` и `/site-backups*`
+отвечают редиректом `307` на новые.
 
 ## Переменные окружения
 
@@ -406,7 +374,7 @@ curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/options/sources"
 - `pg_dump` должен быть не старше мажорной версии сервера. В образе клиент PostgreSQL 17,
   версия задаётся `--build-arg PG_VERSION=16`.
 - MySQL: `--single-transaction` корректен для InnoDB; таблицы MyISAM могут быть неконсистентны.
-- Сайт не делает каталог и базу атомарными: `tar` читает живой каталог, дамп фиксирует базу
+- Проект не делает каталог и базу атомарными: `tar` читает живой каталог, дамп фиксирует базу
   на момент старта. Для строгой согласованности нужно окно обслуживания или снапшот ФС.
 - Восстановления из UI нет (разрушительная операция) — только скачивание и команды выше.
 
@@ -426,9 +394,9 @@ make up       # docker compose up -d --build
 ```
 cmd/vbackuper          точка входа
 internal/config        переменные окружения
-internal/store         SQLite: цели, бэкапы, сайты, прогоны сайтов, настройки
+internal/store         SQLite: проекты, прогоны, файлы прогонов, настройки
 internal/backup        движки: dir, postgres, mysql + хэш/логи/проверки
-internal/service       оркестрация целей и сайтов, retention, проверки
+internal/service       оркестрация проектов, retention, проверки
 internal/scheduler     cron, догоняющие запуски
 internal/web           UI, REST API, авторизация
 internal/web/templates html-шаблоны (embed)
@@ -448,12 +416,12 @@ docker compose -f docker-compose.test.yml up -d --build
 - PostgreSQL: `postgres:5432`, база `demo`, пользователь `demo`, пароль `demo`
 - MariaDB: `mariadb:3306`, база `demo`, пользователь `demo`, пароль `demo`
 
-Сценарий: добавить все три цели → «Запустить бэкап» → проверить статусы, размеры и скачивание →
-удалить один бэкап → убедиться, что retention оставляет 3.
+Сценарий: добавить проекты → «Запустить прогон» → проверить статусы, размеры и скачивание →
+удалить один прогон → убедиться, что retention оставляет 3.
 
-Проверка сайтов:
+Проверка проектов:
 
-1. Создать сайт «каталог + PostgreSQL»: `/sources/fixtures` + `postgres:5432/demo`, и сайт
+1. Создать проект «каталог + PostgreSQL»: `/sources/fixtures` + `postgres:5432/demo`, и проект
    «каталог + MariaDB»: `/sources/fixtures` + `mariadb:3306/demo`.
 2. «Проверить подключение» — обе части должны быть зелёными; при неверном пароле базы
    каталог всё равно проверяется успешно, а база показывает ошибку учётных данных.
@@ -462,5 +430,7 @@ docker compose -f docker-compose.test.yml up -d --build
 4. Retention: оставить 2, выполнить три прогона → остаются два последних успешных.
 5. Частичный отказ: испортить пароль базы и запустить → статус `failed`,
    но `files.tar.zst` присутствует и скачивается.
+6. Проект только с каталогом и проект только с базой — оба запускаются и дают `manifest.json`
+   с одной частью.
 
 Остановка: `docker compose -f docker-compose.test.yml down -v`.

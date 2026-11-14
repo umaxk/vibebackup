@@ -16,11 +16,7 @@ import (
 	"vbackuper/internal/store"
 )
 
-func runDir(ctx context.Context, t *store.Target, destFile string, logs *LogBuffer) (Result, error) {
-	cfg, err := t.DirConfig()
-	if err != nil {
-		return Result{}, err
-	}
+func runDir(ctx context.Context, cfg store.DirConfig, destFile string, logs *LogBuffer) (Result, error) {
 	base := filepath.Clean(cfg.Path)
 	info, err := os.Stat(base)
 	if err != nil {
