@@ -31,7 +31,7 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
-var pages = []string{"login", "dashboard", "target_form", "target_detail", "backups", "settings"}
+var pages = []string{"login", "dashboard", "target_form", "target_detail", "sites", "site_form", "site_detail", "backups", "settings"}
 
 const sessionCookie = "vbc_session"
 
@@ -94,6 +94,18 @@ func (w *Web) Routes() http.Handler {
 		mux.HandleFunc("POST /targets/{id}/run", w.targetRun)
 		mux.HandleFunc("POST /targets/{id}/toggle", w.targetToggle)
 		mux.HandleFunc("POST /targets/{id}/test", w.targetTest)
+		mux.HandleFunc("GET /sites", w.sitesPage)
+		mux.HandleFunc("GET /sites/new", w.siteNew)
+		mux.HandleFunc("POST /sites", w.siteCreate)
+		mux.HandleFunc("GET /sites/{id}", w.siteDetail)
+		mux.HandleFunc("GET /sites/{id}/edit", w.siteEdit)
+		mux.HandleFunc("POST /sites/{id}", w.siteUpdate)
+		mux.HandleFunc("POST /sites/{id}/delete", w.siteDelete)
+		mux.HandleFunc("POST /sites/{id}/run", w.siteRun)
+		mux.HandleFunc("POST /sites/{id}/toggle", w.siteToggle)
+		mux.HandleFunc("POST /sites/{id}/test", w.siteTest)
+		mux.HandleFunc("GET /site-backups/{id}/download", w.siteBackupDownload)
+		mux.HandleFunc("POST /site-backups/{id}/delete", w.siteBackupDelete)
 		mux.HandleFunc("GET /backups", w.backupsPage)
 		mux.HandleFunc("GET /backups/{id}/download", w.backupDownload)
 		mux.HandleFunc("POST /backups/{id}/delete", w.backupDelete)
@@ -113,6 +125,19 @@ func (w *Web) Routes() http.Handler {
 	mux.HandleFunc("GET /api/backups/{id}", w.apiBackupGet)
 	mux.HandleFunc("DELETE /api/backups/{id}", w.apiBackupDelete)
 	mux.HandleFunc("GET /api/backups/{id}/download", w.backupDownload)
+	mux.HandleFunc("GET /api/sites", w.apiSitesList)
+	mux.HandleFunc("POST /api/sites", w.apiSiteCreate)
+	mux.HandleFunc("POST /api/sites/test", w.apiSiteTest)
+	mux.HandleFunc("GET /api/sites/{id}", w.apiSiteGet)
+	mux.HandleFunc("PUT /api/sites/{id}", w.apiSiteUpdate)
+	mux.HandleFunc("DELETE /api/sites/{id}", w.apiSiteDelete)
+	mux.HandleFunc("POST /api/sites/{id}/test", w.apiSiteTestStored)
+	mux.HandleFunc("POST /api/sites/{id}/run", w.apiSiteRun)
+	mux.HandleFunc("GET /api/sites/{id}/backups", w.apiSiteBackups)
+	mux.HandleFunc("GET /api/site-backups", w.apiSiteBackupsList)
+	mux.HandleFunc("GET /api/site-backups/{id}", w.apiSiteBackupGet)
+	mux.HandleFunc("DELETE /api/site-backups/{id}", w.apiSiteBackupDelete)
+	mux.HandleFunc("GET /api/site-backups/{id}/download", w.siteBackupDownload)
 	mux.HandleFunc("GET /api/options/sources", w.apiSources)
 	mux.HandleFunc("POST /api/cron/preview", w.apiCronPreview)
 	mux.HandleFunc("POST /api/test", w.apiTest)

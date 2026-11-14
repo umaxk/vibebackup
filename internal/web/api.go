@@ -46,6 +46,7 @@ type targetPayload struct {
 }
 
 type dbDTO struct {
+	Type        string `json:"type,omitempty"`
 	Host        string `json:"host"`
 	Port        int    `json:"port"`
 	Database    string `json:"database"`
@@ -489,12 +490,14 @@ func (w *Web) apiFail(resp http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeJSONError(resp, http.StatusNotFound, "не найдено")
-	case errors.Is(err, service.ErrBusy):
+	case errors.Is(err, service.ErrBusy), errors.Is(err, service.ErrSiteBusy):
 		writeJSONError(resp, http.StatusConflict, err.Error())
 	default:
 		msg := err.Error()
 		if strings.Contains(msg, "расписание") || strings.Contains(msg, "обязател") || strings.Contains(msg, "некорректн") ||
-			strings.Contains(msg, "каталог") || strings.Contains(msg, "путь") || strings.Contains(msg, "не является") {
+			strings.Contains(msg, "каталог") || strings.Contains(msg, "путь") || strings.Contains(msg, "не является") ||
+			strings.Contains(msg, "включите") || strings.Contains(msg, "выберите") || strings.Contains(msg, "база данных") ||
+			strings.Contains(msg, "пользователь") || strings.Contains(msg, "пароль") || strings.Contains(msg, "порт") {
 			writeJSONError(resp, http.StatusBadRequest, msg)
 			return
 		}

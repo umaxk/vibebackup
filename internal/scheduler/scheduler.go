@@ -24,25 +24,27 @@ type Scheduler struct {
 	log    *slog.Logger
 	loc    *time.Location
 
-	mu  sync.Mutex
-	ids map[int64]cron.EntryID
+	mu      sync.Mutex
+	ids     map[int64]cron.EntryID
+	siteIDs map[int64]cron.EntryID
 }
 
 // New creates a scheduler using the standard 5-field cron syntax.
 func New(cfg *config.Config, st *store.Store, svc *service.Service, log *slog.Logger) *Scheduler {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	return &Scheduler{
-		cron:   cron.New(cron.WithParser(parser), cron.WithLocation(cfg.Location)),
-		parser: parser,
-		svc:    svc,
-		st:     st,
-		log:    log,
-		loc:    cfg.Location,
-		ids:    map[int64]cron.EntryID{},
+		cron:    cron.New(cron.WithParser(parser), cron.WithLocation(cfg.Location)),
+		parser:  parser,
+		svc:     svc,
+		st:      st,
+		log:     log,
+		loc:     cfg.Location,
+		ids:     map[int64]cron.EntryID{},
+		siteIDs: map[int64]cron.EntryID{},
 	}
 }
 
-// Start loads targets, schedules them and performs catch-up runs.
+// Start loads targets and sites, schedules them and performs catch-up runs.
 func (s *Scheduler) Start(ctx context.Context) error {
 	targets, err := s.st.ListTargets(ctx)
 	if err != nil {
@@ -53,8 +55,18 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			s.log.Warn("некорректное расписание цели", "target", t.Name, "target_id", t.ID, "err", err)
 		}
 	}
+	sites, err := s.st.ListSites(ctx)
+	if err != nil {
+		return err
+	}
+	for _, site := range sites {
+		if err := s.SyncSite(site); err != nil {
+			s.log.Warn("некорректное расписание сайта", "site", site.Name, "site_id", site.ID, "err", err)
+		}
+	}
 	s.cron.Start()
 	s.catchUp(ctx, targets)
+	s.catchUpSites(ctx, sites)
 	return nil
 }
 
@@ -118,6 +130,63 @@ func (s *Scheduler) NextRun(targetID int64) *time.Time {
 	return &next
 }
 
+// SyncSite adds, updates or removes the cron entry of a site.
+func (s *Scheduler) SyncSite(site *store.Site) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if id, ok := s.siteIDs[site.ID]; ok {
+		s.cron.Remove(id)
+		delete(s.siteIDs, site.ID)
+	}
+	if site.Schedule == "" || !site.Enabled {
+		return nil
+	}
+
+	name := site.Name
+	id := site.ID
+	entryID, err := s.cron.AddFunc(site.Schedule, func() {
+		if _, err := s.svc.StartSiteBackup(context.Background(), id, "schedule"); err != nil {
+			if errors.Is(err, service.ErrSiteBusy) {
+				s.log.Info("запуск сайта по расписанию пропущен: прогон уже идёт", "site", name)
+			} else {
+				s.log.Error("не удалось запустить прогон сайта по расписанию", "site", name, "err", err)
+			}
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("расписание %q: %w", site.Schedule, err)
+	}
+	s.siteIDs[site.ID] = entryID
+	return nil
+}
+
+// RemoveSite drops the cron entry of a deleted site.
+func (s *Scheduler) RemoveSite(siteID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id, ok := s.siteIDs[siteID]; ok {
+		s.cron.Remove(id)
+		delete(s.siteIDs, siteID)
+	}
+}
+
+// NextRunSite returns the next scheduled run of a site, if any.
+func (s *Scheduler) NextRunSite(siteID int64) *time.Time {
+	s.mu.Lock()
+	entryID, ok := s.siteIDs[siteID]
+	s.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	entry := s.cron.Entry(entryID)
+	if entry.ID == 0 || entry.Next.IsZero() {
+		return nil
+	}
+	next := entry.Next
+	return &next
+}
+
 // NextRuns returns the next n runs of a cron expression.
 func (s *Scheduler) NextRuns(schedule string, n int) ([]time.Time, error) {
 	sch, err := s.parser.Parse(schedule)
@@ -168,6 +237,46 @@ func (s *Scheduler) catchUp(ctx context.Context, targets []*store.Target) {
 			if _, err := s.svc.StartBackup(context.Background(), targetID, "startup"); err != nil {
 				if !errors.Is(err, service.ErrBusy) {
 					s.log.Warn("догоняющий запуск не удался", "target", name, "err", err)
+				}
+			}
+		}()
+	}
+}
+
+// catchUpSites mirrors catchUp for sites.
+func (s *Scheduler) catchUpSites(ctx context.Context, sites []*store.Site) {
+	grace := s.svc.GraceMinutes(ctx)
+	if grace <= 0 {
+		return
+	}
+	now := time.Now()
+	window := now.Add(-time.Duration(grace) * time.Minute)
+	for _, site := range sites {
+		if !site.Enabled || site.Schedule == "" {
+			continue
+		}
+		sch, err := s.parser.Parse(site.Schedule)
+		if err != nil {
+			continue
+		}
+		prev := sch.Next(window)
+		if prev.After(now) {
+			continue
+		}
+		last, err := s.st.LastSiteBackup(ctx, site.ID)
+		if err != nil {
+			continue
+		}
+		if last != nil && !last.StartedAt.Before(prev) {
+			continue
+		}
+		siteID := site.ID
+		name := site.Name
+		s.log.Info("догоняющий прогон сайта после старта", "site", name, "missed_at", prev.Format(time.RFC3339))
+		go func() {
+			if _, err := s.svc.StartSiteBackup(context.Background(), siteID, "startup"); err != nil {
+				if !errors.Is(err, service.ErrSiteBusy) {
+					s.log.Warn("догоняющий прогон сайта не удался", "site", name, "err", err)
 				}
 			}
 		}()

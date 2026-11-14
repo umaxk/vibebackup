@@ -8,9 +8,10 @@
 - **Каталоги** — `tar` + `zstd`, с масками исключений и сохранением прав/владельцев/симлинков.
 - **PostgreSQL** — `pg_dump --format=custom` (нативно сжатый дамп, восстанавливается `pg_restore`).
 - **MySQL / MariaDB** — `mysqldump --single-transaction` + `zstd`.
+- **Сайты** — каталог и база данных в одном прогоне: общий статус, история, retention и архив.
 - **Расписание** — cron (5 полей), пресеты в UI, ручной запуск, включение/выключение цели.
 - **История** — статус, размер, длительность, sha256, лог ошибки, скачивание, удаление.
-- **Retention** — хранить N последних успешных бэкапов на цель.
+- **Retention** — хранить N последних успешных бэкапов на цель или сайт.
 - **Надёжность** — один прогон на цель, лимит параллельных задач, таймаут, проверка свободного места,
   корректная остановка по SIGTERM, пометка прерванных прогонов после рестарта.
 - **Интерфейсы** — веб-панель и REST API с авторизацией (cookie-сессия, HTTP Basic или API-ключ).
@@ -85,6 +86,47 @@ openssl rand -hex 32
 После рестарта пропущенный запуск выполняется один раз, если попал в окно `VBC_GRACE_MINUTES`.
 Хранить `0` бэкапов — использовать `default_retention` из настроек; `0` там — не удалять автоматически.
 
+## Сайты: каталог и база вместе
+
+Сайт — отдельная сущность для случая «файлы сайта + его база». У сайта одно расписание,
+один retention, одна история прогонов и один набор файлов на прогон.
+
+Состав (нужна хотя бы одна часть):
+
+- **каталог** — путь внутри контейнера и маски исключений;
+- **база данных** — PostgreSQL **или** MySQL/MariaDB: хост, порт, база, пользователь, пароль,
+  `sslmode` (только PostgreSQL).
+
+В форме сайта блоки включаются галочками. Порт по умолчанию подставляется по типу базы
+(`5432` или `3306`), поле `sslmode` показывается только для PostgreSQL.
+
+### Проверка подключения
+
+Кнопка «Проверить подключение» проверяет части раздельно:
+
+- каталог — существует, читается, доступен внутри `VBC_SOURCE_ROOTS`;
+- база — клиент подключается **именно к указанной базе** и выполняет `SELECT 1`,
+  поэтому различаются три случая: сервер недоступен, неверные учётные данные,
+  база не найдена или нет прав.
+
+Тот же результат доступен в API: `POST /api/sites/{id}/test` (без тела — сохранённый сайт,
+с телом — значения из формы) и `POST /api/sites/test` для несохранённого сайта.
+Ответ содержит независимые блоки `dir` и `db` с `ok`, `info` или `error`.
+
+### Прогон
+
+1. Сначала снимается дамп базы, затем архивируется каталог: база фиксируется в начале окна,
+   файлы читаются после, поэтому восстановленные файлы не окажутся старше базы.
+2. Части независимы: если упала база, архив каталога всё равно создаётся и остаётся доступным.
+   Итоговый статус прогона — `failed`, а в ошибке перечислены упавшие части.
+3. `manifest.json` пишется всегда: список файлов с ролями, размерами и `sha256`, а также ошибки частей.
+4. Один прогон на сайт, общий лимит `VBC_MAX_CONCURRENT`, таймаут `VBC_JOB_TIMEOUT` на весь прогон.
+5. Retention хранит N последних **успешных** прогонов сайта; `0` — значение по умолчанию из настроек.
+
+Полностью согласованной пары «файлы + база» без снапшота ФС или остановки приложения не бывает:
+`tar` читает живой каталог, а `pg_dump`/`mysqldump` фиксируют состояние на момент старта.
+Для строгих случаев используйте окно обслуживания или снапшот ФС.
+
 ## Где лежат бэкапы
 
 ```
@@ -93,6 +135,36 @@ openssl rand -hex 32
 /backups/<slug>-<id>/<год>/<месяц>/<slug>-<id>-<YYYYMMDDTHHMMSS>-b<backupID>.sql.zst   (MySQL)
 + рядом файл .sha256
 ```
+
+Прогоны сайтов лежат отдельно, одной папкой на прогон:
+
+```
+/backups/sites/<slug>-<id>/<год>/<месяц>/<YYYYMMDDTHHMMSS>-b<backupID>/
+├── manifest.json
+├── files.tar.zst        (если у сайта есть каталог)
+├── db.dump              (PostgreSQL)
+└── db.sql.zst           (MySQL/MariaDB)
+```
+
+`manifest.json`:
+
+```json
+{
+  "site_id": 3,
+  "site_name": "example.com",
+  "backup_id": 12,
+  "started_at": "2026-11-14T03:00:00Z",
+  "finished_at": "2026-11-14T03:00:41Z",
+  "files": [
+    {"role": "dir", "name": "files.tar.zst", "size_bytes": 1048576, "sha256": "..."},
+    {"role": "db",  "name": "db.dump",       "size_bytes": 262144,  "sha256": "..."}
+  ],
+  "errors": {}
+}
+```
+
+Скачивание «всё одним архивом» отдаёт `tar` с `manifest.json` и всеми файлами прогона;
+отдельный файл доступен по роли: `?file=dir`, `?file=db`, `?file=manifest`.
 
 Файлы читаются без сервиса. Проверка целостности: `sha256sum -c <файл>.sha256`.
 
@@ -117,6 +189,23 @@ createdb restore_target && pg_restore -d restore_target backup.dump
 ```bash
 zstd -d backup.sql.zst -c | mysql -h host -u user -p db
 ```
+
+**Сайт (каталог + база)**
+
+Скачайте архив прогона из UI («Скачать всё») или через API и распакуйте:
+
+```bash
+curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12/download"
+
+tar -xf site-3-backup-12.tar
+# manifest.json, files.tar.zst, db.dump (или db.sql.zst)
+zstd -d files.tar.zst -c | tar -x -C /restore
+pg_restore -h host -p 5432 -U user -d db --clean --if-exists db.dump
+# для MySQL: zstd -dc db.sql.zst | mysql -h host -u user -p db
+```
+
+Сверьте `sha256` файлов с `manifest.json`, если прогон завершился с ошибкой одной из частей:
+успешные файлы всё равно пригодны для восстановления.
 
 В контейнере уже есть `pg_restore`, `psql`, `mysql` и `zstd`, поэтому восстановление можно
 делать прямо из него, не устанавливая клиенты на хост:
@@ -196,6 +285,43 @@ curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/targets/1?remove_files
 # удалить один бэкап (remove_file=false — оставить файл)
 curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/backups/12"
 
+# сайт: каталог + PostgreSQL в одном прогоне
+curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"example.com","schedule":"0 3 * * *","retention_keep":7,
+       "dir":{"path":"/sources/example.com","exclude":["node_modules","*.log"]},
+       "db_type":"postgres",
+       "database":{"host":"postgres","port":5432,"database":"example","user":"backup","password":"secret"}}' \
+  "$VBC_URL/api/sites"
+
+# сайт только с MariaDB (каталог не нужен)
+curl -X POST -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"shop-db","schedule":"0 4 * * *","db_type":"mysql",
+       "database":{"host":"mariadb","port":3306,"database":"shop","user":"backup","password":"secret"}}' \
+  "$VBC_URL/api/sites"
+
+# проверка частей: без тела — сохранённый сайт, с телом — значения из формы
+curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1/test"
+
+# запуск прогона: 202, 409 если прогон уже идёт
+curl -X POST -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1/run"
+
+# история прогонов сайта и всех сайтов
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1/backups?limit=50"
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups?site_id=1&limit=50"
+
+# детали прогона: файлы, manifest_sha256, лог
+curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12"
+
+# скачать всё одним tar (manifest.json + files.tar.zst + db.dump/db.sql.zst)
+curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12/download"
+
+# отдельный файл по роли: dir, db или manifest
+curl -OJ -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12/download?file=db"
+
+# удалить сайт с файлами / один прогон
+curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/sites/1?remove_files=true"
+curl -X DELETE -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/site-backups/12"
+
 # настройки, предпросмотр cron, состояние системы, доступные каталоги
 curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/settings"
 curl -X PUT -H "X-API-Key: $VBC_API_KEY" -H 'Content-Type: application/json' \
@@ -223,7 +349,16 @@ curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/options/sources"
 | GET | `/api/backups?target_id=&limit=` | все бэкапы |
 | GET/DELETE | `/api/backups/{id}` | детали / удаление (`?remove_file=false`) |
 | GET | `/api/backups/{id}/download` | скачивание файла |
-| POST | `/api/test` | проверка не сохранённой конфигурации |
+| GET/POST | `/api/sites` | список / создание сайта |
+| GET/PUT/DELETE | `/api/sites/{id}` | чтение / изменение / удаление (`?remove_files=false`) |
+| POST | `/api/sites/test` | проверка несохранённого сайта: `dir` и `db` раздельно |
+| POST | `/api/sites/{id}/test` | проверка частей (тело необязательно) |
+| POST | `/api/sites/{id}/run` | запуск прогона, `202` + `id` |
+| GET | `/api/sites/{id}/backups` | история прогонов сайта |
+| GET | `/api/site-backups?site_id=&limit=` | прогоны всех сайтов |
+| GET/DELETE | `/api/site-backups/{id}` | детали с файлами / удаление (`?remove_files=false`) |
+| GET | `/api/site-backups/{id}/download?file=` | всё одним tar или один файл (`dir`, `db`, `manifest`) |
+| POST | `/api/test` | проверка не сохранённой конфигурации цели |
 | POST | `/api/cron/preview` | ближайшие запуски `{"schedule":"..."}` |
 | GET/PUT | `/api/settings` | политика хранения |
 | GET | `/api/options/sources` | доступные каталоги |
@@ -271,6 +406,8 @@ curl -H "X-API-Key: $VBC_API_KEY" "$VBC_URL/api/options/sources"
 - `pg_dump` должен быть не старше мажорной версии сервера. В образе клиент PostgreSQL 17,
   версия задаётся `--build-arg PG_VERSION=16`.
 - MySQL: `--single-transaction` корректен для InnoDB; таблицы MyISAM могут быть неконсистентны.
+- Сайт не делает каталог и базу атомарными: `tar` читает живой каталог, дамп фиксирует базу
+  на момент старта. Для строгой согласованности нужно окно обслуживания или снапшот ФС.
 - Восстановления из UI нет (разрушительная операция) — только скачивание и команды выше.
 
 ## Разработка
@@ -289,9 +426,9 @@ make up       # docker compose up -d --build
 ```
 cmd/vbackuper          точка входа
 internal/config        переменные окружения
-internal/store         SQLite: цели, бэкапы, настройки
-internal/backup        движки: dir, postgres, mysql + хэш/логи
-internal/service       оркестрация, retention, проверки
+internal/store         SQLite: цели, бэкапы, сайты, прогоны сайтов, настройки
+internal/backup        движки: dir, postgres, mysql + хэш/логи/проверки
+internal/service       оркестрация целей и сайтов, retention, проверки
 internal/scheduler     cron, догоняющие запуски
 internal/web           UI, REST API, авторизация
 internal/web/templates html-шаблоны (embed)
@@ -313,5 +450,17 @@ docker compose -f docker-compose.test.yml up -d --build
 
 Сценарий: добавить все три цели → «Запустить бэкап» → проверить статусы, размеры и скачивание →
 удалить один бэкап → убедиться, что retention оставляет 3.
+
+Проверка сайтов:
+
+1. Создать сайт «каталог + PostgreSQL»: `/sources/fixtures` + `postgres:5432/demo`, и сайт
+   «каталог + MariaDB»: `/sources/fixtures` + `mariadb:3306/demo`.
+2. «Проверить подключение» — обе части должны быть зелёными; при неверном пароле базы
+   каталог всё равно проверяется успешно, а база показывает ошибку учётных данных.
+3. Запустить прогон → статус `ok`; скачать всё одним tar → внутри `manifest.json`,
+   `files.tar.zst`, `db.dump` или `db.sql.zst`; sha256 совпадает с манифестом.
+4. Retention: оставить 2, выполнить три прогона → остаются два последних успешных.
+5. Частичный отказ: испортить пароль базы и запустить → статус `failed`,
+   но `files.tar.zst` присутствует и скачивается.
 
 Остановка: `docker compose -f docker-compose.test.yml down -v`.

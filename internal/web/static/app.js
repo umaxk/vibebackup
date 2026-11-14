@@ -80,6 +80,100 @@
     });
   }
 
+  // ---- site form ---------------------------------------------------------
+  var siteForm = document.getElementById("site-form");
+  if (siteForm) {
+    var dirToggle = siteForm.querySelector('input[name="dir_enabled"]');
+    var dbToggle = siteForm.querySelector('input[name="db_enabled"]');
+    var siteDBType = document.getElementById("site-db-type");
+    var siteSSL = siteForm.querySelector("[data-ssl]");
+    var sitePort = siteForm.querySelector('input[name="db_port"]');
+
+    var syncSite = function () {
+      siteForm.querySelectorAll("[data-site-section]").forEach(function (el) {
+        var part = el.getAttribute("data-site-section");
+        el.hidden = part === "dir" ? !dirToggle.checked : !dbToggle.checked;
+      });
+      if (siteSSL) {
+        siteSSL.hidden = !dbToggle.checked || !siteDBType || siteDBType.value !== "postgres";
+      }
+    };
+    var syncPort = function () {
+      if (sitePort && !sitePort.value) {
+        sitePort.value = siteDBType && siteDBType.value === "mysql" ? "3306" : "5432";
+      }
+      syncSite();
+    };
+    dirToggle.addEventListener("change", syncSite);
+    dbToggle.addEventListener("change", syncSite);
+    if (siteDBType) siteDBType.addEventListener("change", syncPort);
+    syncSite();
+
+    var splitLines = function (value) {
+      return String(value || "")
+        .split(/\r?\n/)
+        .map(function (s) { return s.trim(); })
+        .filter(Boolean);
+    };
+    var partText = function (part) {
+      if (!part) return "";
+      if (part.ok) return "ок" + (part.info ? " (" + part.info + ")" : "");
+      return "ошибка: " + (part.error || "неизвестная");
+    };
+
+    var siteTestBtn = document.getElementById("site-test-btn");
+    if (siteTestBtn) {
+      siteTestBtn.addEventListener("click", async function () {
+        var out = document.getElementById("site-test-result");
+        var fd = new FormData(siteForm);
+        var id = Number(siteForm.getAttribute("data-site-id") || 0);
+        var payload = {
+          id: id,
+          name: fd.get("name") || "",
+          schedule: fd.get("schedule") || "",
+          enabled: fd.get("enabled") === "1",
+          retention_keep: Number(fd.get("retention_keep") || 0),
+          dir: dirToggle.checked
+            ? { path: fd.get("dir_path") || "", exclude: splitLines(fd.get("dir_exclude")) }
+            : null,
+          db_type: dbToggle.checked ? String(fd.get("db_type") || "") : "",
+          database: dbToggle.checked
+            ? {
+                host: fd.get("db_host") || "",
+                port: Number(fd.get("db_port") || 0),
+                database: fd.get("db_name") || "",
+                user: fd.get("db_user") || "",
+                password: fd.get("db_password") || "",
+                sslmode: fd.get("db_sslmode") || "",
+              }
+            : null,
+        };
+
+        out.textContent = "Проверяю подключение…";
+        out.className = "test-result";
+        try {
+          var url = id ? "/api/sites/" + id + "/test" : "/api/sites/test";
+          var res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          var data = await res.json().catch(function () { return {}; });
+          var lines = [];
+          if (data.dir) lines.push("Каталог: " + partText(data.dir));
+          if (data.db) lines.push("База: " + partText(data.db));
+          if (data.error) lines.push(data.error);
+          if (!lines.length) lines.push(data.error || "Ошибка проверки (" + res.status + ")");
+          out.textContent = lines.join("\n");
+          out.className = "test-result " + (res.ok && data.ok ? "ok" : "err");
+        } catch (e) {
+          out.textContent = "Ошибка запроса: " + e;
+          out.className = "test-result err";
+        }
+      });
+    }
+  }
+
   // ---- cron preview ------------------------------------------------------
   var schedule = document.getElementById("schedule");
   var preview = document.getElementById("cron-preview");

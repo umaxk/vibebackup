@@ -120,10 +120,13 @@ type detailData struct {
 
 type backupsData struct {
 	viewBase
-	Backups    []backupView
-	Targets    []targetRow
-	Selected   int64
-	HasRunning bool
+	Backups      []backupView
+	SiteRuns     []siteBackupView
+	Targets      []targetRow
+	Sites        []siteRow
+	Selected     int64
+	SelectedSite int64
+	HasRunning   bool
 }
 
 type settingsData struct {
@@ -135,6 +138,105 @@ type settingsData struct {
 	MaxConcurrent int
 	JobTimeout    string
 	AdminUser     string
+}
+
+type siteFileView struct {
+	Role      string
+	RoleLabel string
+	Name      string
+	SizeBytes int64
+	SHA256    string
+}
+
+type siteBackupView struct {
+	ID             int64
+	SiteID         int64
+	SiteName       string
+	Status         string
+	StatusLabel    string
+	StatusClass    string
+	StartedAt      time.Time
+	FinishedAt     *time.Time
+	SizeBytes      int64
+	DurationMS     int64
+	ErrorText      string
+	Log            string
+	RunDir         string
+	ManifestSHA256 string
+	Files          []siteFileView
+	HasDir         bool
+	HasDB          bool
+}
+
+type siteRow struct {
+	ID          int64
+	Name        string
+	Schedule    string
+	Enabled     bool
+	NextRun     *time.Time
+	Last        *siteBackupView
+	Running     bool
+	DirPath     string
+	DBType      string
+	DBTypeLabel string
+	DB          *dbInfo
+}
+
+type siteInfo struct {
+	ID            int64
+	Name          string
+	Schedule      string
+	Enabled       bool
+	RetentionKeep int
+	CreatedAt     time.Time
+	NextRun       *time.Time
+	Dir           *store.DirConfig
+	DBType        string
+	DBTypeLabel   string
+	DB            *dbInfo
+	Last          *siteBackupView
+}
+
+type siteForm struct {
+	Name          string
+	Schedule      string
+	RetentionKeep int
+	Enabled       bool
+	DirEnabled    bool
+	DirPath       string
+	DirExclude    string
+	DBEnabled     bool
+	DBType        string
+	DBHost        string
+	DBPort        string
+	DBName        string
+	DBUser        string
+	DBSSLMode     string
+	PasswordSet   bool
+}
+
+type sitesData struct {
+	viewBase
+	Sites      []siteRow
+	HasRunning bool
+}
+
+type siteFormData struct {
+	viewBase
+	IsNew       bool
+	Action      string
+	SiteID      int64
+	Form        siteForm
+	SourceRoots []string
+	NextRuns    []time.Time
+}
+
+type siteDetailData struct {
+	viewBase
+	Site          siteInfo
+	Backups       []siteBackupView
+	HasRunning    bool
+	ScheduleError string
 }
 
 func (w *Web) backupView(b *store.Backup) backupView {
@@ -211,6 +313,120 @@ func (w *Web) targetInfo(t *store.Target) targetInfo {
 		}
 	}
 	return info
+}
+
+func (w *Web) siteBackupView(b *store.SiteBackup, files []*store.SiteBackupFile) siteBackupView {
+	v := siteBackupView{
+		ID:             b.ID,
+		SiteID:         b.SiteID,
+		SiteName:       b.SiteName,
+		Status:         b.Status,
+		StatusLabel:    statusLabel(b.Status),
+		StatusClass:    statusClass(b.Status),
+		StartedAt:      b.StartedAt.In(w.cfg.Location),
+		SizeBytes:      b.SizeBytes,
+		DurationMS:     b.DurationMS,
+		ErrorText:      b.Error,
+		Log:            b.LogTail,
+		RunDir:         b.RunDir,
+		ManifestSHA256: b.ManifestSHA256,
+	}
+	if b.FinishedAt != nil {
+		t := b.FinishedAt.In(w.cfg.Location)
+		v.FinishedAt = &t
+	}
+	for _, f := range files {
+		v.Files = append(v.Files, siteFileView{
+			Role:      f.Role,
+			RoleLabel: roleLabel(f.Role),
+			Name:      f.Name,
+			SizeBytes: f.SizeBytes,
+			SHA256:    f.SHA256,
+		})
+		switch f.Role {
+		case "dir":
+			v.HasDir = true
+		case "db":
+			v.HasDB = true
+		}
+	}
+	return v
+}
+
+func (w *Web) siteRow(site *store.Site, last *store.SiteBackup, running bool) siteRow {
+	row := siteRow{
+		ID:          site.ID,
+		Name:        site.Name,
+		Schedule:    site.Schedule,
+		Enabled:     site.Enabled,
+		NextRun:     w.sched.NextRunSite(site.ID),
+		Running:     running,
+		DBType:      site.DBType,
+		DBTypeLabel: typeLabel(site.DBType),
+	}
+	if dir, err := site.Dir(); err == nil && dir != nil {
+		row.DirPath = dir.Path
+	}
+	if db, err := site.DB(); err == nil && db != nil {
+		row.DB = &dbInfo{
+			Host:        db.Host,
+			Port:        db.Port,
+			Database:    db.Database,
+			User:        db.User,
+			SSLMode:     db.SSLMode,
+			PasswordSet: db.Password != "",
+		}
+	}
+	if last != nil {
+		v := w.siteBackupView(last, nil)
+		row.Last = &v
+	}
+	return row
+}
+
+func (w *Web) siteInfo(site *store.Site, last *store.SiteBackup) siteInfo {
+	info := siteInfo{
+		ID:            site.ID,
+		Name:          site.Name,
+		Schedule:      site.Schedule,
+		Enabled:       site.Enabled,
+		RetentionKeep: site.RetentionKeep,
+		CreatedAt:     site.CreatedAt.In(w.cfg.Location),
+		NextRun:       w.sched.NextRunSite(site.ID),
+		DBType:        site.DBType,
+		DBTypeLabel:   typeLabel(site.DBType),
+	}
+	if dir, err := site.Dir(); err == nil {
+		info.Dir = dir
+	}
+	if db, err := site.DB(); err == nil && db != nil {
+		info.DB = &dbInfo{
+			Host:        db.Host,
+			Port:        db.Port,
+			Database:    db.Database,
+			User:        db.User,
+			SSLMode:     db.SSLMode,
+			PasswordSet: db.Password != "",
+		}
+	}
+	if last != nil {
+		v := w.siteBackupView(last, nil)
+		info.Last = &v
+	}
+	return info
+}
+
+func roleLabel(role string) string {
+	switch role {
+	case "dir":
+		return "каталог"
+	case "db":
+		return "база данных"
+	case "manifest":
+		return "манифест"
+	default:
+		return role
+	}
 }
 
 func templateFuncs() template.FuncMap {

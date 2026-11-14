@@ -1,0 +1,111 @@
+{{define "content"}}
+<div class="row between wrap">
+  <div>
+    <h1>{{.Site.Name}}</h1>
+    <p class="muted">
+      {{if .Site.Schedule}}<code>{{.Site.Schedule}}</code>{{else}}только вручную{{end}}
+      · создан {{fmtTime .Site.CreatedAt}}
+      {{if not .Site.Enabled}} · <span class="badge off">выключен</span>{{end}}
+    </p>
+  </div>
+  <div class="row gap wrap">
+    <form method="post" action="/sites/{{.Site.ID}}/run"><button class="btn primary" type="submit">Запустить прогон</button></form>
+    <a class="btn" href="/sites/{{.Site.ID}}/edit">Изменить</a>
+  </div>
+</div>
+
+{{if .ScheduleError}}<div class="flash err">Расписание недействительно: {{.ScheduleError}}</div>{{end}}
+
+<div class="two-col">
+  <div class="card">
+    <h2>Параметры</h2>
+    <dl class="props">
+      <dt>Следующий запуск</dt><dd>{{fmtTimeP .Site.NextRun}}</dd>
+      <dt>Хранить прогонов</dt><dd>{{if .Site.RetentionKeep}}{{.Site.RetentionKeep}}{{else}}по умолчанию{{end}}</dd>
+      {{if .Site.Dir}}
+        <dt>Каталог</dt><dd><code>{{.Site.Dir.Path}}</code></dd>
+        <dt>Исключения</dt><dd>{{if .Site.Dir.Exclude}}{{join .Site.Dir.Exclude ", "}}{{else}}—{{end}}</dd>
+      {{end}}
+      {{if .Site.DB}}
+        <dt>База данных</dt><dd>{{.Site.DBTypeLabel}}</dd>
+        <dt>Сервер</dt><dd><code>{{.Site.DB.Host}}:{{.Site.DB.Port}}</code></dd>
+        <dt>База</dt><dd>{{.Site.DB.Database}}</dd>
+        <dt>Пользователь</dt><dd>{{.Site.DB.User}}</dd>
+        {{if .Site.DB.SSLMode}}<dt>SSL mode</dt><dd>{{.Site.DB.SSLMode}}</dd>{{end}}
+        <dt>Пароль</dt><dd>{{if .Site.DB.PasswordSet}}задан{{else}}не задан{{end}}</dd>
+      {{end}}
+      <dt>Последний прогон</dt>
+      <dd>
+        {{if .Site.Last}}
+          <span class="badge {{.Site.Last.StatusClass}}">{{.Site.Last.StatusLabel}}</span>
+          {{fmtTime .Site.Last.StartedAt}}
+        {{else}}нет{{end}}
+      </dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>Управление</h2>
+    <form method="post" action="/sites/{{.Site.ID}}/toggle" class="stack">
+      <input type="hidden" name="back" value="/sites/{{.Site.ID}}">
+      <button class="btn" type="submit">{{if .Site.Enabled}}Выключить расписание{{else}}Включить расписание{{end}}</button>
+    </form>
+    <form method="post" action="/sites/{{.Site.ID}}/test" class="stack">
+      <button class="btn" type="submit">Проверить подключение</button>
+    </form>
+    <form method="post" action="/sites/{{.Site.ID}}/delete" class="stack danger-zone"
+          data-confirm="Удалить сайт «{{.Site.Name}}»?">
+      <label class="check"><input type="checkbox" name="delete_files" value="1" checked> удалить и файлы прогонов</label>
+      <button class="btn danger" type="submit">Удалить сайт</button>
+    </form>
+  </div>
+</div>
+
+<div class="row between">
+  <h2>История прогонов</h2>
+  <a class="btn ghost small" href="/backups?site_id={{.Site.ID}}">Все прогоны сайта</a>
+</div>
+
+{{if not .Backups}}
+<div class="card empty">Прогонов ещё не было. Нажмите «Запустить прогон», чтобы создать первый.</div>
+{{else}}
+<div class="card table-wrap">
+<table class="grid">
+  <thead>
+    <tr><th>Статус</th><th>Начат</th><th>Размер</th><th>Длительность</th><th>Файлы</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .Backups}}
+    {{$run := .}}
+    <tr>
+      <td><span class="badge {{.StatusClass}}">{{.StatusLabel}}</span></td>
+      <td>{{fmtTime .StartedAt}}</td>
+      <td>{{fmtBytes .SizeBytes}}</td>
+      <td>{{fmtDuration .DurationMS}}</td>
+      <td class="file">
+        {{range .Files}}<div><a href="/site-backups/{{$run.ID}}/download?file={{.Role}}">{{.Name}}</a> <span class="muted small">{{fmtBytes .SizeBytes}}</span></div>{{else}}—{{end}}
+      </td>
+      <td class="actions-cell">
+        {{if .Files}}<a class="btn small ghost" href="/site-backups/{{.ID}}/download">Скачать всё</a>{{end}}
+        <form method="post" action="/site-backups/{{.ID}}/delete" data-confirm="Удалить этот прогон и все его файлы?">
+          <input type="hidden" name="back" value="/sites/{{$.Site.ID}}">
+          <button class="btn small danger" type="submit">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {{if .ErrorText}}
+    <tr class="log-row"><td colspan="6"><div class="flash err" style="margin:0">{{.ErrorText}}</div></td></tr>
+    {{end}}
+    {{if .Log}}
+    <tr class="log-row"><td colspan="6">
+      <details><summary>Лог{{if .ErrorText}} (ошибка){{end}}</summary><pre>{{.Log}}</pre></details>
+    </td></tr>
+    {{end}}
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{if .HasRunning}}<p class="muted hint" id="live">Прогон выполняется, страница обновится через <span data-live>8</span> с…</p>{{end}}
+{{end}}

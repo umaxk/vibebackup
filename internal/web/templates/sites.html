@@ -1,0 +1,66 @@
+{{define "content"}}
+<div class="row between">
+  <h1>Сайты</h1>
+  <a class="btn primary" href="/sites/new">Добавить сайт</a>
+</div>
+
+<p class="muted small">
+  Сайт — это совместный бэкап каталога и базы данных: один запуск, один набор файлов,
+  одна история и одно правило хранения.
+</p>
+
+{{if not .Sites}}
+<div class="card empty">
+  Сайтов пока нет. <a href="/sites/new">Добавьте сайт</a>, чтобы сохранять каталог и базу вместе.
+</div>
+{{else}}
+<div class="card table-wrap">
+<table class="grid">
+  <thead>
+    <tr>
+      <th>Название</th>
+      <th>Расписание</th>
+      <th>Следующий запуск</th>
+      <th>Состав</th>
+      <th>Последний прогон</th>
+      <th>Размер</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Sites}}
+    <tr>
+      <td><a href="/sites/{{.ID}}">{{.Name}}</a>{{if not .Enabled}} <span class="badge off">выключен</span>{{end}}</td>
+      <td>{{if .Schedule}}<code>{{.Schedule}}</code>{{else}}<span class="muted">вручную</span>{{end}}</td>
+      <td>{{fmtTimeP .NextRun}}</td>
+      <td>
+        {{if .DirPath}}<div>каталог: <code>{{.DirPath}}</code></div>{{end}}
+        {{if .DB}}<div>{{.DBTypeLabel}} · <code>{{.DB.Database}}@{{.DB.Host}}:{{.DB.Port}}</code>{{if .DB.PasswordSet}} · пароль задан{{end}}</div>{{end}}
+      </td>
+      <td>
+        {{if .Last}}
+          <span class="badge {{.Last.StatusClass}}">{{.Last.StatusLabel}}</span>
+          <span class="muted small">{{fmtTime .Last.StartedAt}}</span>
+        {{else}}
+          <span class="muted">нет</span>
+        {{end}}
+        {{if .Running}}<span class="badge run">идёт</span>{{end}}
+      </td>
+      <td>{{if .Last}}{{fmtBytes .Last.SizeBytes}}{{else}}—{{end}}</td>
+      <td class="actions-cell">
+        <form method="post" action="/sites/{{.ID}}/run"><button class="btn small" type="submit">Сейчас</button></form>
+        {{if .Last}}<a class="btn small ghost" href="/site-backups/{{.Last.ID}}/download">Скачать</a>{{end}}
+        <form method="post" action="/sites/{{.ID}}/toggle">
+          <input type="hidden" name="back" value="/sites">
+          <button class="btn small ghost" type="submit">{{if .Enabled}}Выключить{{else}}Включить{{end}}</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{if .HasRunning}}<p class="muted hint" id="live">Есть активные прогоны, страница обновится через <span data-live>8</span> с…</p>{{end}}
+{{end}}

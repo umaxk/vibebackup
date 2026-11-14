@@ -24,6 +24,9 @@ import (
 // ErrBusy means a backup for the target is already queued or running.
 var ErrBusy = errors.New("для этой цели уже выполняется бэкап")
 
+// ErrSiteBusy means a run for the site is already queued or running.
+var ErrSiteBusy = errors.New("для этого сайта уже выполняется бэкап")
+
 // TargetInput is a transport-agnostic description of a target, used by both the
 // web forms and the JSON API.
 type TargetInput struct {
@@ -51,9 +54,10 @@ type Service struct {
 	cfg *config.Config
 	log *slog.Logger
 
-	sem     chan struct{}
-	mu      sync.Mutex
-	running map[int64]bool
+	sem          chan struct{}
+	mu           sync.Mutex
+	running      map[int64]bool
+	runningSites map[int64]bool
 
 	rootCtx context.Context
 	cancel  context.CancelFunc
@@ -64,13 +68,14 @@ type Service struct {
 func New(st *store.Store, cfg *config.Config, log *slog.Logger) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Service{
-		st:      st,
-		cfg:     cfg,
-		log:     log,
-		sem:     make(chan struct{}, cfg.MaxConcurrent),
-		running: map[int64]bool{},
-		rootCtx: ctx,
-		cancel:  cancel,
+		st:           st,
+		cfg:          cfg,
+		log:          log,
+		sem:          make(chan struct{}, cfg.MaxConcurrent),
+		running:      map[int64]bool{},
+		runningSites: map[int64]bool{},
+		rootCtx:      ctx,
+		cancel:       cancel,
 	}
 }
 

@@ -223,6 +223,7 @@ func (w *Web) targetDetail(resp http.ResponseWriter, r *http.Request) {
 func (w *Web) backupsPage(resp http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	selected, _ := strconv.ParseInt(r.URL.Query().Get("target_id"), 10, 64)
+	selectedSite, _ := strconv.ParseInt(r.URL.Query().Get("site_id"), 10, 64)
 	backups, err := w.st.ListBackups(ctx, selected, 300)
 	if err != nil {
 		w.fail(resp, r, err)
@@ -233,11 +234,29 @@ func (w *Web) backupsPage(resp http.ResponseWriter, r *http.Request) {
 		w.fail(resp, r, err)
 		return
 	}
-	d := backupsData{viewBase: w.base(r, "Бэкапы"), Selected: selected}
+	sites, err := w.st.ListSites(ctx)
+	if err != nil {
+		w.fail(resp, r, err)
+		return
+	}
+	runs, err := w.st.ListSiteBackups(ctx, selectedSite, 300)
+	if err != nil {
+		w.fail(resp, r, err)
+		return
+	}
+
+	d := backupsData{
+		viewBase:     w.base(r, "Бэкапы"),
+		Selected:     selected,
+		SelectedSite: selectedSite,
+	}
 	for _, t := range targets {
 		d.Targets = append(d.Targets, targetRow{
 			ID: t.ID, Name: t.Name, Type: t.Type, TypeLabel: typeLabel(t.Type), Enabled: t.Enabled,
 		})
+	}
+	for _, site := range sites {
+		d.Sites = append(d.Sites, siteRow{ID: site.ID, Name: site.Name, Enabled: site.Enabled})
 	}
 	for _, b := range backups {
 		v := w.backupView(b)
@@ -245,6 +264,13 @@ func (w *Web) backupsPage(resp http.ResponseWriter, r *http.Request) {
 			d.HasRunning = true
 		}
 		d.Backups = append(d.Backups, v)
+	}
+	for _, run := range runs {
+		v := w.siteBackupView(run, nil)
+		if v.Status == store.StatusRunning || v.Status == store.StatusQueued {
+			d.HasRunning = true
+		}
+		d.SiteRuns = append(d.SiteRuns, v)
 	}
 	w.render(resp, "backups", d)
 }

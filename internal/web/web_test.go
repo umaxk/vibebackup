@@ -35,6 +35,24 @@ func TestTemplatesRender(t *testing.T) {
 	}
 	base := viewBase{Title: "Тест", Version: "test", Authed: true}
 
+	siteLast := &siteBackupView{
+		ID: 9, SiteID: 2, SiteName: "example.com", Status: "ok", StatusLabel: "успешно",
+		StatusClass: "ok", StartedAt: now, SizeBytes: 4096, DurationMS: 2500,
+		RunDir: "/backups/sites/example-com-2/2026/11/20261114T030000-b9",
+		Files: []siteFileView{
+			{Role: "dir", RoleLabel: "каталог", Name: "files.tar.zst", SizeBytes: 3000},
+			{Role: "db", RoleLabel: "база данных", Name: "db.dump", SizeBytes: 1000},
+			{Role: "manifest", RoleLabel: "манифест", Name: "manifest.json", SizeBytes: 96},
+		},
+		HasDir: true, HasDB: true, Log: "готово",
+	}
+	siteRowVal := siteRow{
+		ID: 2, Name: "example.com", Schedule: "0 3 * * *", Enabled: true, NextRun: &now,
+		Last: siteLast, Running: true, DirPath: "/sources/site", DBType: "postgres",
+		DBTypeLabel: "PostgreSQL",
+		DB:          &dbInfo{Host: "postgres", Port: 5432, Database: "example", User: "backup", PasswordSet: true},
+	}
+
 	datas := map[string]any{
 		"login": loginData{viewBase: viewBase{Title: "Вход", Version: "test"}},
 		"dashboard": dashboardData{
@@ -60,7 +78,32 @@ func TestTemplatesRender(t *testing.T) {
 			Backups: []backupView{*last}, HasRunning: true,
 		},
 		"backups": backupsData{
-			viewBase: base, Backups: []backupView{*last}, Targets: []targetRow{row}, Selected: 1, HasRunning: true,
+			viewBase: base, Backups: []backupView{*last}, SiteRuns: []siteBackupView{*siteLast},
+			Targets: []targetRow{row}, Sites: []siteRow{siteRowVal}, Selected: 1, SelectedSite: 2, HasRunning: true,
+		},
+		"sites": sitesData{viewBase: base, Sites: []siteRow{siteRowVal}, HasRunning: true},
+		"site_form": siteFormData{
+			viewBase: base, IsNew: true, Action: "/sites",
+			Form: siteForm{
+				Name: "example.com", Schedule: "0 3 * * *", RetentionKeep: 7, Enabled: true,
+				DirEnabled: true, DirPath: "/sources/site", DirExclude: "*.log",
+				DBEnabled: true, DBType: "postgres", DBHost: "postgres", DBPort: "5432",
+				DBName: "example", DBUser: "backup", DBSSLMode: "prefer", PasswordSet: true,
+			},
+			SourceRoots: []string{"/sources", "/sources/site"},
+			NextRuns:    []time.Time{now, now.Add(time.Hour)},
+		},
+		"site_detail": siteDetailData{
+			viewBase: base,
+			Site: siteInfo{
+				ID: 2, Name: "example.com", Schedule: "0 3 * * *", Enabled: true, RetentionKeep: 7,
+				CreatedAt: now, NextRun: &now,
+				Dir:    &store.DirConfig{Path: "/sources/site", Exclude: []string{"*.log"}},
+				DBType: "postgres", DBTypeLabel: "PostgreSQL",
+				DB:   &dbInfo{Host: "postgres", Port: 5432, Database: "example", User: "backup", PasswordSet: true},
+				Last: siteLast,
+			},
+			Backups: []siteBackupView{*siteLast}, HasRunning: true,
 		},
 		"settings": settingsData{
 			viewBase:  base,
@@ -159,6 +202,8 @@ func TestAPIOnlyModeHidesUI(t *testing.T) {
 		{http.MethodGet, "/", http.StatusNotFound},
 		{http.MethodGet, "/login", http.StatusNotFound},
 		{http.MethodGet, "/targets/new", http.StatusNotFound},
+		{http.MethodGet, "/sites", http.StatusNotFound},
+		{http.MethodGet, "/sites/new", http.StatusNotFound},
 		{http.MethodPost, "/login", http.StatusNotFound},
 		{http.MethodGet, "/static/app.css", http.StatusNotFound},
 		{http.MethodGet, "/favicon.ico", http.StatusNotFound},

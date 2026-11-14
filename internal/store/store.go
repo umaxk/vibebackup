@@ -64,6 +64,47 @@ CREATE TABLE IF NOT EXISTS settings (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sites (
+	id             INTEGER PRIMARY KEY AUTOINCREMENT,
+	name           TEXT NOT NULL,
+	schedule       TEXT NOT NULL DEFAULT '',
+	enabled        INTEGER NOT NULL DEFAULT 1,
+	retention_keep INTEGER NOT NULL DEFAULT 0,
+	dir_config     TEXT NOT NULL DEFAULT '',
+	db_type        TEXT NOT NULL DEFAULT '',
+	db_config      TEXT NOT NULL DEFAULT '',
+	created_at     INTEGER NOT NULL,
+	updated_at     INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS site_backups (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	site_id         INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+	started_at      INTEGER NOT NULL,
+	finished_at     INTEGER,
+	status          TEXT NOT NULL,
+	size_bytes      INTEGER NOT NULL DEFAULT 0,
+	run_dir         TEXT NOT NULL DEFAULT '',
+	manifest_sha256 TEXT NOT NULL DEFAULT '',
+	duration_ms     INTEGER NOT NULL DEFAULT 0,
+	error           TEXT NOT NULL DEFAULT '',
+	log_tail        TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS site_backup_files (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	backup_id  INTEGER NOT NULL REFERENCES site_backups(id) ON DELETE CASCADE,
+	role       TEXT NOT NULL,
+	name       TEXT NOT NULL,
+	path       TEXT NOT NULL,
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	sha256     TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_site_backups_site ON site_backups(site_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_site_backups_started ON site_backups(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_site_backup_files ON site_backup_files(backup_id);
 `
 
 // Target is a configured backup source.

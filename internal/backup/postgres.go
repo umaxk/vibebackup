@@ -100,6 +100,9 @@ func streamCommand(ctx context.Context, bin string, args, env []string, destFile
 		runErr = closeErr
 	}
 	if runErr != nil {
+		// A failed dump leaves a truncated file behind; drop it so the run
+		// directory holds only artifacts that are actually recorded.
+		_ = os.Remove(destFile)
 		if ctx.Err() != nil {
 			return Result{}, ctx.Err()
 		}
